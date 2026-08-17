@@ -38,12 +38,51 @@ retyping column names.
 | `store_size` | `int64` | no | From `stores.csv` `Size`. |
 | `temperature` | `float64` | no | Avg regional temperature (°F) that week. |
 | `fuel_price` | `float64` | no | Regional fuel price that week. |
-| `markdown1`..`markdown5` | `float64` | **yes** | Promotional markdown amounts. `NaN` means "no promo/no data that week" — do **not** fill with 0, that would conflate "no promo" with "promo worth $0". |
-| `cpi` | `float64` | **yes** (~7%) | Consumer Price Index for the region. |
-| `unemployment` | `float64` | **yes** (~7%) | Regional unemployment rate. |
+| `markdown1`..`markdown5` | `float64` | no | Promotional markdown amounts. **Updated 2026-08-17 (Module 1):** NaN is now filled with `0.0` in `src/features/build_dataset.py`, reversing the original "keep NaN" decision above — see note below. |
+| `cpi` | `float64` | no* | Consumer Price Index for the region. Forward-filled per store (see note below). *Still listed as nullable in `config.NULLABLE_COLS`'s spirit — 0 nulls in the current data, but ffill can't fill a store's leading rows if a future data refresh introduces some. |
+| `unemployment` | `float64` | no* | Regional unemployment rate. Same ffill treatment/caveat as `cpi`. |
+| `is_negative_sales` | `bool` | no | `True` when `weekly_sales < 0`. Added so models can filter/weight return-heavy weeks without the shared data touching the target value itself. |
+| `day_of_week` | `int64` | no | `date.dt.dayofweek`. **Constant across the whole dataset (always 4 = Friday)** — every row is a Friday-dated weekly snapshot, so this column has zero variance. Kept for schema completeness; modelers can drop it. |
+| `month` | `int64` | no | `date.dt.month`, 1-12. |
+| `week_of_year` | `int64` | no | ISO week number, 1-52/53. |
+| `weekly_sales_lag_1` | `float64` | **yes** | Previous available week's `weekly_sales` for the same `(store_id, dept_id)`. NaN for a group's first observed week. Computed with `groupby().shift(1)` — see caveat below on date gaps. |
+| `weekly_sales_lag_4` | `float64` | **yes** | Same, but 4 rows back (`shift(4)`). |
+| `weekly_sales_roll_mean_4` | `float64` | **yes** | Rolling mean of `weekly_sales` over the trailing 4 available weeks, computed on the `shift(1)` series so the current row's own value is never included. |
+| `weekly_sales_roll_std_4` | `float64` | **yes** | Same, rolling std (`ddof=1`). |
 
 Natural key: `(store_id, dept_id, date)` uniquely identifies a row
 (`config.ID_COLS`).
+
+### Update 2026-08-17 (Module 1 — data cleaning + feature engineering)
+
+Changes made while building `src/features/build_dataset.py`, flagged here
+per the "update this doc if you add columns" rule at the top:
+
+- **MarkDown NaN handling reversed.** The schema previously said "do not
+  fill with 0". Module 1 was tasked with filling `markdown1..5` NaN with
+  `0.0`, which is what's now in `model_train.csv`/`model_holdout.csv`.
+  This does conflate "no promo" with "promo worth $0" as the original
+  note warned — flagging for the team to confirm this is intended before
+  models start training on it.
+- **CPI/Unemployment**: forward-filled per `store_id` (sorted by date)
+  instead of mean-imputed. In practice this is a no-op for `train.csv`'s
+  date range — all of the ~7% missing values in `features.csv` fall in
+  2013-05 to 2013-07, which is entirely inside `test.csv`'s date range
+  (`train.csv` ends 2012-10-26). So `model_train.csv`/`model_holdout.csv`
+  currently have 0 nulls in these columns regardless of imputation method;
+  the ffill logic matters once `kaggle_predict.csv` gets built.
+- **New engineered columns** added: `is_negative_sales`, `day_of_week`,
+  `month`, `week_of_year`, `weekly_sales_lag_1`, `weekly_sales_lag_4`,
+  `weekly_sales_roll_mean_4`, `weekly_sales_roll_std_4`. All reflected in
+  `config.PROCESSED_DTYPES` / `config.NULLABLE_COLS` / `config.LAG_WEEKS` /
+  `config.ROLLING_WINDOW_WEEKS`.
+- **Lag/rolling caveat**: `groupby(["store_id","dept_id"]).shift(...)` uses
+  the previous *row* in that group, not strictly the previous *calendar*
+  week. ~1.3% of store-dept week-to-week transitions in `train.csv` have a
+  gap (missing week) rather than exactly 7 days — for those rows,
+  `weekly_sales_lag_1` is technically "last observed week", which may be
+  more than 7 days prior. Not corrected (would require reindexing every
+  group to a full weekly calendar); flagging as a known simplification.
 
 ### Negative `weekly_sales`
 

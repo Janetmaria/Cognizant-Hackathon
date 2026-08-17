@@ -57,23 +57,35 @@ PROCESSED_DTYPES = {
     "store_size": "int64",
     "temperature": "float64",
     "fuel_price": "float64",
-    "markdown1": "float64",      # nullable — NaN means no markdown that week, not $0
+    "markdown1": "float64",      # NaN filled with 0.0 by src/features/build_dataset.py
     "markdown2": "float64",
     "markdown3": "float64",
     "markdown4": "float64",
     "markdown5": "float64",
-    "cpi": "float64",            # nullable, ~7% missing
-    "unemployment": "float64",   # nullable, ~7% missing
+    "cpi": "float64",            # ffilled per-store; 0 nulls in model_train/model_holdout
+    "unemployment": "float64",   # ffilled per-store; 0 nulls in model_train/model_holdout
+    "is_negative_sales": "bool",       # True if weekly_sales < 0 (kept unmodified, see docs/data_schema.md)
+    "day_of_week": "int64",            # constant (4 = Friday) for this dataset; kept for completeness
+    "month": "int64",
+    "week_of_year": "int64",
+    "weekly_sales_lag_1": "float64",   # nullable — NaN for a group's first observed week(s)
+    "weekly_sales_lag_4": "float64",   # nullable
+    "weekly_sales_roll_mean_4": "float64",  # nullable; computed on shift(1) series, see build_dataset.py
+    "weekly_sales_roll_std_4": "float64",   # nullable
 }
 
 # Columns that are allowed to contain NaN in the processed data.
 NULLABLE_COLS = [
-    "markdown1", "markdown2", "markdown3", "markdown4", "markdown5",
-    "cpi", "unemployment",
+    "weekly_sales_lag_1", "weekly_sales_lag_4",
+    "weekly_sales_roll_mean_4", "weekly_sales_roll_std_4",
 ]
 
 # Natural key that uniquely identifies a row (one store-dept-week).
 ID_COLS = ["store_id", "dept_id", "date"]
+
+# Feature engineering knobs used by src/features/build_dataset.py.
+LAG_WEEKS = [1, 4]
+ROLLING_WINDOW_WEEKS = 4
 
 # ---------------------------------------------------------------------------
 # Misc
