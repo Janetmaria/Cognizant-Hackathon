@@ -3,7 +3,9 @@ numpy
 scikit-learn
 lightgbm
 prophet
+statsmodels
 fastapi
 uvicorn
 streamlit
 matplotlib
+
