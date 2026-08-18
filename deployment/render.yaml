@@ -1,0 +1,21 @@
+# Render deployment configuration
+# Docs: https://render.com/docs/yaml-spec
+
+services:
+  - type: web
+    name: retail-forecast-api
+    runtime: python
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn backend.main:app --host 0.0.0.0 --port $PORT"
+    plan: free
+    envVars:
+      - key: SECRET_KEY
+        sync: false          # Set manually in Render dashboard — never commit
+      - key: GEMINI_API_KEY
+        sync: false          # Set manually in Render dashboard
+      - key: ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_SECONDS
+        value: "28800"
+      - key: PYTHON_VERSION
+        value: "3.11.0"
