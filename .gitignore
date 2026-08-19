@@ -9,4 +9,11 @@ data/raw/*
 
 *.pkl
 *.joblib
+
+# Secrets
 .env
+.env.local
+
+# SQLite DB (Module 8 — auto-created on startup, never commit)
+*.db
+backend/users.db
