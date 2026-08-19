@@ -1,0 +1,4 @@
+,WMAE,MAE,RMSE,MAPE (%),R2 Score
+LightGBM Model (Module 5),1414.5,1301.39,2748.48,109.85,0.9841
+Prophet Model (Module 4),1565.93,1557.87,3157.15,270.03,0.979
+Seasonal Naïve Baseline,1806.69,1773.16,3750.62,146.17,0.9704
