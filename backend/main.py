@@ -13,6 +13,7 @@ from pathlib import Path
 
 # Import sub-routers
 import backend.reorder_routes as reorder_routes
+import backend.data_routes as data_routes
 import src.reorder_logic as reorder_logic
 
 app = FastAPI(
@@ -32,6 +33,7 @@ app.add_middleware(
 
 # Register Module 6 router paths (GET /reorder/{store_id} and POST /whatif)
 app.include_router(reorder_routes.router, tags=["Inventory Intelligence"])
+app.include_router(data_routes.router, tags=["Data Summary"])
 
 # Verify path for predictions
 try:
