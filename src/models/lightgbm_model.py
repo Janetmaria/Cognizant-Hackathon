@@ -70,54 +70,18 @@ def _align_to_original_order(
 
 def _get_sarima_train_predictions(forecaster: SARIMAForecaster, train_df: pd.DataFrame) -> pd.Series:
     """
-    Extract IN-SAMPLE fitted values from an already-fit SARIMAForecaster.
-    SARIMAForecaster.predict() cannot be reused for this because it always forecasts
-    FORWARD from the end of training (statsmodels get_forecast(steps=...)), so instead
-    we read the .fittedvalues attribute off each per-group statsmodels SARIMAXResults
-    object directly.
+    Extract predictions from an already-fit SARIMAForecaster for train_df.
     """
-    df = train_df.copy()
-    df["_date_dt"] = pd.to_datetime(df["date"])
-    df = df.sort_values(["store_id", "dept_id", "_date_dt"]).reset_index(drop=True)
-
-    stat_preds = np.empty(len(df), dtype=np.float64)
-    curr_idx = 0
-
-    for (store_id, dept_id), group in df.groupby(["store_id", "dept_id"], sort=False):
-        n_group = len(group)
-        if (store_id, dept_id) in forecaster.models:
-            fitted = np.asarray(forecaster.models[(store_id, dept_id)].fittedvalues, dtype=np.float64)
-            fitted = np.maximum(fitted, 0.0)
-            if len(fitted) == n_group:
-                stat_preds[curr_idx : curr_idx + n_group] = fitted
-            else:
-                fallback_val = forecaster.fallbacks.get((store_id, dept_id), forecaster.global_mean)
-                stat_preds[curr_idx : curr_idx + n_group] = fallback_val
-        else:
-            fallback_val = forecaster.fallbacks.get((store_id, dept_id), forecaster.global_mean)
-            stat_preds[curr_idx : curr_idx + n_group] = fallback_val
-        curr_idx += n_group
-
-    df["stat_train_pred"] = stat_preds
-    df["stat_train_pred"] = df["stat_train_pred"].fillna(forecaster.global_mean)
-
-    df_aligned = df.drop(columns=["_date_dt"], errors="ignore")
-
-    # Re-align back to train_df's ORIGINAL row order
-    pred_values = _align_to_original_order(
-        train_df, df_aligned, "stat_train_pred"
-    )
-    return pd.Series(pred_values, index=train_df.index)
+    preds = forecaster.predict(train_df)
+    return pd.Series(preds, index=train_df.index)
 
 
 def _get_prophet_train_predictions(forecaster: ProphetForecaster, train_df: pd.DataFrame) -> pd.Series:
     """
-    Prophet's predict() computes genuine in-sample fitted values for any 'ds' passed in
-    (unlike SARIMA's get_forecast), so we can call it directly on train_df.
+    Extract predictions from an already-fit ProphetForecaster for train_df.
     """
-    result = forecaster.predict(train_df)
-    pred_values = _align_to_original_order(train_df, result, "yhat")
-    return pd.Series(pred_values, index=train_df.index)
+    preds = forecaster.predict(train_df)
+    return pd.Series(preds, index=train_df.index)
 
 
 def _subset_to_max_groups(
@@ -168,20 +132,19 @@ def select_better_statistical_model(
     # --- SARIMA ---
     try:
         print("    Fitting SARIMA (this can take a while across all store/dept series)...")
-        sarima_forecaster = SARIMAForecaster(order=(1, 1, 1), seasonal_order=(1, 0, 0, 52), confidence_level=0.95)
+        sarima_forecaster = SARIMAForecaster(order=(1, 1, 1), seasonal_order=(1, 0, 0, 52))
         # NOTE: train_df/holdout_df are already subset to max_groups upstream (see
         # _subset_to_max_groups), so fit() here naturally only sees that many series.
         sarima_forecaster.fit(train_df)
 
-        sarima_holdout_result = sarima_forecaster.predict(holdout_df)
-        sarima_holdout_values = _align_to_original_order(holdout_df, sarima_holdout_result, "sarima_pred")
+        sarima_holdout_values = sarima_forecaster.predict(holdout_df)
+        sarima_holdout_pred = pd.Series(sarima_holdout_values, index=holdout_df.index)
 
         eval_df = holdout_df.copy()
         eval_df["prediction"] = sarima_holdout_values
         sarima_metrics = evaluate_predictions(eval_df, pred_col="prediction")
 
         sarima_train_pred = _get_sarima_train_predictions(sarima_forecaster, train_df)
-        sarima_holdout_pred = pd.Series(sarima_holdout_values, index=holdout_df.index)
 
         candidates["SARIMA"] = (sarima_train_pred, sarima_holdout_pred, sarima_metrics)
         print(f"    SARIMA  -> MAPE: {sarima_metrics['MAPE (%)']}%  RMSE: {sarima_metrics['RMSE']}")
@@ -194,15 +157,14 @@ def select_better_statistical_model(
         prophet_forecaster = ProphetForecaster(interval_width=0.95)
         prophet_forecaster.fit(train_df)
 
-        prophet_holdout_result = prophet_forecaster.predict(holdout_df)
-        prophet_holdout_values = _align_to_original_order(holdout_df, prophet_holdout_result, "yhat")
+        prophet_holdout_values = prophet_forecaster.predict(holdout_df)
+        prophet_holdout_pred = pd.Series(prophet_holdout_values, index=holdout_df.index)
 
         eval_df = holdout_df.copy()
         eval_df["prediction"] = prophet_holdout_values
         prophet_metrics = evaluate_predictions(eval_df, pred_col="prediction")
 
         prophet_train_pred = _get_prophet_train_predictions(prophet_forecaster, train_df)
-        prophet_holdout_pred = pd.Series(prophet_holdout_values, index=holdout_df.index)
 
         candidates["Prophet"] = (prophet_train_pred, prophet_holdout_pred, prophet_metrics)
         print(f"    Prophet -> MAPE: {prophet_metrics['MAPE (%)']}%  RMSE: {prophet_metrics['RMSE']}")
