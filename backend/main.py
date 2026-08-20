@@ -24,6 +24,7 @@ import backend.auth as auth
 import backend.database as database
 import backend.llm_insights as llm_insights
 import backend.reorder_routes as reorder_routes
+import backend.data_routes as data_routes
 import src.reorder_logic as reorder_logic
 
 
@@ -50,10 +51,14 @@ app.add_middleware(
 
 app.include_router(auth.router, tags=["Authentication & RBAC"])
 app.include_router(reorder_routes.router, tags=["Inventory Intelligence"])
-app.include_router(llm_insights.router, tags=["Executive Insights"])
 
+app.include_router(llm_insights.router, tags=["Executive Insights"])
+app.include_router(data_routes.router, tags=["Data Summary"])
 # Ensure tables/seeds exist for import-time clients (e.g. TestClient without lifespan context).
 database.init_db()
+
+app.include_router(data_routes.router, tags=["Data Summary"])
+
 
 try:
     import config
