@@ -28,6 +28,7 @@ import backend.database as database
 import backend.llm_insights as llm_insights
 import backend.reorder_routes as reorder_routes
 import backend.data_routes as data_routes
+import backend.upload_routes as upload_routes
 import src.reorder_logic as reorder_logic
 
 
@@ -73,6 +74,7 @@ app.include_router(auth.router, tags=["Authentication & RBAC"])
 app.include_router(reorder_routes.router, tags=["Inventory Intelligence"])
 app.include_router(llm_insights.router, tags=["Executive Insights"])
 app.include_router(data_routes.router, tags=["Data Summary"])
+app.include_router(upload_routes.router, tags=["CSV Upload Forecast"])
 
 # Ensure tables/seeds exist for import-time clients (e.g. TestClient without lifespan context).
 database.init_db()
@@ -221,20 +223,37 @@ def get_models_comparison(
 ):
     """
     Retrieve global forecasting model tournament performance comparison across the holdout period.
+
+    Numbers below are real evaluate.py output, not placeholders:
+      - naive_seasonal: src/models/baseline.py's seasonal-naive forecast, scored on a
+        297-row sample.
+      - hybrid: the production stacked model (best-of SARIMA/Prophet + LightGBM residuals,
+        src/models/lightgbm_model.py), scored via evaluate_predictions() on the full
+        29,651-row holdout in data/processed/hybrid_predictions.csv.
+      - sarima / prophet standalone: not yet run through evaluate.py independently of the
+        hybrid stack, so they're reported as pending rather than guessed at.
+
+    naive_seasonal's MAPE looks better than hybrid's here (55.02% vs 155.69%) because MAPE
+    is dominated by holdout weeks with near-zero actual sales, where any error becomes a
+    huge percentage — see calculate_mape()'s eps=1.0 floor in src/evaluate.py. RMSE and R2
+    are the metrics that reflect hybrid's actual accuracy on this data, which is why
+    production_model/improvement below are based on RMSE, not MAPE.
     """
+    baseline_rmse = 4026.70
+    hybrid_rmse = 3046.49
     return {
         "holdout_period": {
-            "start": "2012-05-01",
-            "end": "2012-10-26"
+            "start": config.TEST_START_DATE,
+            "end": config.TEST_END_DATE,
         },
         "models": [
-            {"name": "naive_seasonal", "mape": 24.8, "rmse": 3210.4},
-            {"name": "sarima", "mape": 16.2, "rmse": 2440.1},
-            {"name": "prophet", "mape": 15.7, "rmse": 2380.6},
-            {"name": "lightgbm", "mape": 9.3, "rmse": 1510.8}
+            {"name": "naive_seasonal", "mape": 55.02, "rmse": baseline_rmse, "sample_size": 297},
+            {"name": "sarima", "status": "not yet evaluated"},
+            {"name": "prophet", "status": "not yet evaluated"},
+            {"name": "hybrid", "mape": 155.69, "rmse": hybrid_rmse, "r2": 0.9805, "sample_size": 29651},
         ],
-        "production_model": "lightgbm",
-        "improvement_vs_baseline_pct": 62.5
+        "production_model": "hybrid",
+        "improvement_vs_baseline_rmse_pct": round((baseline_rmse - hybrid_rmse) / baseline_rmse * 100, 2),
     }
 
 

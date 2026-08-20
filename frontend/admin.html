@@ -116,7 +116,7 @@
           <h2 class="card-title">⚡ Machine Learning Model Comparison Tournament</h2>
           <p class="card-subtitle">Chronological holdout set evaluation comparing MAPE and RMSE error across all models.</p>
         </div>
-        <div class="badge badge-green" style="font-size: 0.8rem;">Production: LightGBM (+62.5% Gain)</div>
+        <div class="badge badge-green" style="font-size: 0.8rem;" id="productionBadge">Loading production model...</div>
       </div>
 
       <div class="table-container" style="margin-bottom: 1.5rem;">
@@ -344,32 +344,73 @@
         const tbody = document.getElementById('modelsTableBody');
         tbody.innerHTML = '';
 
-        const baselineMape = data.models.find(m => m.name === 'naive_seasonal')?.mape || 24.8;
+        const baselineRmse = data.models.find(m => m.name === 'naive_seasonal')?.rmse;
+        const evaluatedModels = data.models.filter(m => typeof m.mape === 'number' && typeof m.rmse === 'number');
 
         data.models.forEach(model => {
           const isProduction = model.name === data.production_model;
-          const improvement = ((baselineMape - model.mape) / baselineMape * 100).toFixed(1);
+          const isEvaluated = typeof model.mape === 'number' && typeof model.rmse === 'number';
 
           let prettyName = model.name;
           let modelType = 'Statistical';
           if (model.name === 'lightgbm') { prettyName = 'LightGBM Gradient Boosting'; modelType = 'Gradient Boosted Trees (ML)'; }
+          if (model.name === 'hybrid') { prettyName = 'Hybrid (Stat Model + LightGBM Residuals)'; modelType = 'Residual-Stacked Ensemble (ML)'; }
           if (model.name === 'prophet') { prettyName = 'Meta Prophet'; modelType = 'Generalized Additive Model'; }
           if (model.name === 'sarima') { prettyName = 'SARIMA'; modelType = 'AutoRegressive Seasonal'; }
           if (model.name === 'naive_seasonal') { prettyName = 'Seasonal Naïve Baseline'; modelType = 'Heuristic Lag Baseline'; }
 
           const tr = document.createElement('tr');
+
+          if (!isEvaluated) {
+            // sarima/prophet aren't scored standalone yet -- show a pending
+            // row instead of crashing on missing mape/rmse fields.
+            tr.innerHTML = `
+              <td style="font-weight: 700; color: #fff;">${prettyName}</td>
+              <td style="color: var(--text-secondary);">${modelType}</td>
+              <td colspan="3" style="color: var(--text-muted); font-style: italic;">${model.status || 'Not yet evaluated'}</td>
+              <td><span class="badge badge-amber">Pending</span></td>
+            `;
+            tbody.appendChild(tr);
+            return;
+          }
+
+          // Improvement is RMSE-based, not MAPE-based: MAPE on this holdout is
+          // dominated by near-zero-sales weeks (see backend's /models/comparison
+          // docstring), so hybrid can show a *worse* MAPE than the naive baseline
+          // while still cutting RMSE substantially. RMSE is the metric that
+          // reflects real accuracy here.
+          const improvement = (baselineRmse && model.rmse)
+            ? (((baselineRmse - model.rmse) / baselineRmse) * 100).toFixed(1)
+            : null;
+
           tr.innerHTML = `
             <td style="font-weight: 700; color: #fff;">${prettyName}</td>
             <td style="color: var(--text-secondary);">${modelType}</td>
             <td><strong style="color: ${model.mape < 15 ? '#34d399' : '#fbbf24'};">${model.mape.toFixed(1)}%</strong></td>
             <td>$${model.rmse.toLocaleString()}</td>
-            <td><span style="color: ${improvement > 0 ? '#38bdf8' : 'var(--text-muted)'}; font-weight: 600;">${improvement > 0 ? '+' + improvement + '%' : 'Reference'}</span></td>
+            <td>${improvement === null
+              ? '<span style="color: var(--text-muted);">Reference</span>'
+              : `<span style="color: ${improvement > 0 ? '#38bdf8' : '#fb7185'}; font-weight: 600;">${improvement > 0 ? '+' + improvement : improvement}% RMSE</span>`}</td>
             <td>${isProduction ? '<span class="badge badge-green">🚀 Active Production</span>' : '<span class="badge badge-indigo">Benchmarked</span>'}</td>
           `;
           tbody.appendChild(tr);
         });
 
-        renderModelComparisonChart(data.models);
+        const prodModel = data.models.find(m => m.name === data.production_model);
+        const prodBadge = document.getElementById('productionBadge');
+        if (prodModel) {
+          const prodImprovement = (baselineRmse && prodModel.rmse && prodModel.name !== 'naive_seasonal')
+            ? (((baselineRmse - prodModel.rmse) / baselineRmse) * 100).toFixed(1)
+            : null;
+          const label = prodModel.name.replace('_', ' ').toUpperCase();
+          prodBadge.innerText = prodImprovement !== null
+            ? `Production: ${label} (+${prodImprovement}% RMSE vs Baseline)`
+            : `Production: ${label}`;
+        } else {
+          prodBadge.innerText = 'Production model not set';
+        }
+
+        renderModelComparisonChart(evaluatedModels);
 
       } catch (err) {
         console.error('Failed loading model comparisons:', err);

@@ -143,10 +143,24 @@
         </div>
       </div>
 
+      <!-- Upload Your Own CSV -->
+      <div class="filter-bar" style="align-items: flex-end; margin-bottom: 1rem;">
+        <div class="form-group">
+          <label class="form-label">Upload Your Own Sales CSV</label>
+          <input type="file" id="uploadCsvInput" accept=".csv" class="form-control" style="max-width: 260px;">
+        </div>
+        <button class="btn btn-cyan btn-sm" onclick="uploadForecastCsv()" id="uploadCsvBtn">📤 Upload &amp; Analyze</button>
+      </div>
+      <p class="card-subtitle" style="margin-top: -0.5rem; margin-bottom: 1rem;">
+        Required columns: <code>Store, Dept, Date, Weekly_Sales</code>. Forecasts are only available for stores/departments already in our trained catalog (the 45-store Walmart dataset) — unmatched rows are listed separately, not retrained on the fly.
+      </p>
+      <div id="uploadStatusBox" style="display: none; margin-bottom: 1rem; padding: 0.75rem 1rem; border-radius: 8px; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); font-size: 0.85rem; color: var(--text-secondary);"></div>
+
       <div class="table-container">
         <table class="data-table" id="reorderTable">
           <thead>
             <tr>
+              <th>Store ID</th>
               <th>Dept ID</th>
               <th>Current Stock (Units)</th>
               <th>Weekly Demand</th>
@@ -158,7 +172,7 @@
           </thead>
           <tbody id="reorderTableBody">
             <tr>
-              <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">Loading inventory intelligence...</td>
+              <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;">Loading inventory intelligence...</td>
             </tr>
           </tbody>
         </table>
@@ -410,16 +424,24 @@
       tbody.innerHTML = '';
 
       if (!alerts || alerts.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">No stockout alerts flagged for this store! All departments healthy.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 2rem;">No stockout alerts flagged for this store! All departments healthy.</td></tr>';
         return;
       }
+
+      // Single-store /reorder alerts don't carry a store_id field (they're
+      // already scoped to one store); CSV-upload alerts can span multiple
+      // stores and always include it. Fall back to the selected store input
+      // so both sources render through the same table.
+      const fallbackStoreId = document.getElementById('forecastStoreInput').value.trim();
 
       alerts.forEach(item => {
         const tr = document.createElement('tr');
         const badgeClass = item.urgency === 'red' ? 'badge-red' : item.urgency === 'amber' ? 'badge-amber' : 'badge-green';
         const icon = item.urgency === 'red' ? '🚨' : item.urgency === 'amber' ? '⏳' : '✅';
+        const storeDisplay = item.store_id !== undefined ? item.store_id : fallbackStoreId;
 
         tr.innerHTML = `
+          <td style="color: var(--text-muted);">Store ${storeDisplay}</td>
           <td style="font-weight: 700; color: #fff;">Dept ${item.dept_id}</td>
           <td>${item.current_stock_units.toLocaleString()}</td>
           <td>${item.predicted_weekly_demand_units.toLocaleString()} units/wk</td>
@@ -430,6 +452,67 @@
         `;
         tbody.appendChild(tr);
       });
+    }
+
+    // ==================== 2b. CSV UPLOAD -> FORECAST + REORDER ALERTS ====================
+    async function uploadForecastCsv() {
+      const fileInput = document.getElementById('uploadCsvInput');
+      const file = fileInput.files[0];
+      if (!file) {
+        showToast('Choose a CSV file first', 'error');
+        return;
+      }
+
+      const btn = document.getElementById('uploadCsvBtn');
+      btn.innerText = 'Uploading...';
+      btn.disabled = true;
+
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+
+        const res = await fetch(`${API_BASE}/upload/forecast`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: formData
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.message || (data.detail && data.detail.message) || 'Upload failed');
+        }
+
+        cachedAlerts = data.reorder_alerts || [];
+        renderReorderTable(cachedAlerts);
+
+        let redCount = 0;
+        let amberCount = 0;
+        cachedAlerts.forEach(a => {
+          if (a.urgency === 'red') redCount++;
+          if (a.urgency === 'amber') amberCount++;
+        });
+        document.getElementById('kpiRedAlerts').innerText = `${redCount} Depts`;
+        document.getElementById('kpiAmberAlerts').innerText = `${amberCount} Depts`;
+        document.getElementById('kpiCapitalFreed').innerText =
+          `$${Number(data.summary?.total_capital_freed_estimate || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+
+        const statusBox = document.getElementById('uploadStatusBox');
+        statusBox.style.display = 'block';
+        const unmatched = data.unmatched_pairs || [];
+        const unmatchedText = unmatched.length
+          ? `${unmatched.length} pair(s) not in our trained catalog: ` +
+            unmatched.map(p => `Store ${p.store_id}/Dept ${p.dept_id}`).join(', ')
+          : 'All uploaded Store/Dept pairs matched a trained forecast.';
+        statusBox.innerHTML = `<strong>${data.rows_received} rows received, ${data.matched_pairs} Store/Dept pair(s) matched.</strong><br>${unmatchedText}`;
+
+        showToast(`Upload processed: ${data.matched_pairs} matched, ${unmatched.length} unmatched`, 'success');
+
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        btn.innerText = '📤 Upload & Analyze';
+        btn.disabled = false;
+      }
     }
 
     function filterReorderTable(urgency) {

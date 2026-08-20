@@ -73,7 +73,11 @@ def standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
             "Unemployment": "unemployment",
         }
     )
-    df["store_type"] = df["store_type"].astype("category")
+    # store_type is absent for callers that don't merge in stores.csv (e.g. a
+    # minimal user-uploaded CSV with no Type column) — cast only when present
+    # so this function stays reusable outside the full raw-file merge path.
+    if "store_type" in df.columns:
+        df["store_type"] = df["store_type"].astype("category")
     return df
 
 

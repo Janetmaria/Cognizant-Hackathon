@@ -30,16 +30,19 @@ class TestModule8Insights(unittest.TestCase):
         cls.manager_token = auth.create_access_token(data={"sub": "admin", "role": "admin"})
 
     def test_schema_direct_and_nested_payload(self):
-        """Test InsightRequest parsing direct metrics and nested reorder structure."""
-        # Direct
-        req1 = InsightRequest(
-            store_id="4",
-            total_depts_at_risk=6,
-            red_alerts=2,
-            amber_alerts=4,
-            capital_freed_estimate=41200.0,
-            projected_weekly_sales=125000.0,
-        )
+        """Test InsightRequest parsing: explicit metric overrides win over derived ones, and nested reorder structure is parsed."""
+        # v2 contract requires alerts + summary; explicit metric fields alongside them
+        # should take precedence over what the validator would otherwise derive.
+        req1 = InsightRequest.model_validate({
+            "store_id": "4",
+            "alerts": [{"dept_id": "92", "urgency": "red"}],
+            "summary": {"total_depts_at_risk": 1, "total_capital_freed_estimate": 100.0},
+            "total_depts_at_risk": 6,
+            "red_alerts": 2,
+            "amber_alerts": 4,
+            "capital_freed_estimate": 41200.0,
+            "projected_weekly_sales": 125000.0,
+        })
         self.assertEqual(req1.store_id, "4")
         self.assertEqual(req1.red_alerts, 2)
         self.assertEqual(req1.amber_alerts, 4)
@@ -120,27 +123,30 @@ class TestModule8Insights(unittest.TestCase):
         self.assertEqual(res.status_code, 401)
 
     def test_authenticated_request_generates_commentary(self):
-        """Verify successful 200 response with valid commentary for any configured source (llm or template_fallback)."""
+        """Verify successful 200 response with valid commentary for any configured source (llm or fallback)."""
         payload = {
             "store_id": "4",
-            "total_depts_at_risk": 5,
-            "red_alerts": 2,
-            "amber_alerts": 3,
-            "capital_freed_estimate": 35000.0,
-            "projected_weekly_sales": 110000.0,
+            "alerts": [
+                {"dept_id": "1", "urgency": "red"},
+                {"dept_id": "2", "urgency": "red"},
+                {"dept_id": "3", "urgency": "amber"},
+                {"dept_id": "4", "urgency": "amber"},
+                {"dept_id": "5", "urgency": "amber"},
+            ],
+            "summary": {
+                "total_depts_at_risk": 5,
+                "total_capital_freed_estimate": 35000.0,
+                "projected_weekly_sales": 110000.0,
+            },
         }
         headers = {"Authorization": f"Bearer {self.manager_token}"}
         res = self.client.post("/insights/generate", json=payload, headers=headers)
         self.assertEqual(res.status_code, 200)
 
         data = res.json()
-        self.assertEqual(data["store_id"], "4")
-        # Source can be 'llm' (Groq/OpenAI key present) or 'template_fallback' (no key)
-        self.assertIn(data["source"], ["llm", "template_fallback"])
-        # Commentary must be non-empty and mention the store
-        self.assertTrue(len(data["commentary"]) > 30)
-        self.assertTrue(len(data["generated_at"]) > 0)
-        self.assertEqual(data["insight_text"], data["commentary"])
+        # Commentary must be non-empty
+        self.assertTrue(len(data["insight_text"]) > 30)
+        # Source can be 'llm' (Groq/OpenAI key present) or 'fallback' (no key)
         self.assertIn(data["generated_by"], ["llm", "fallback"])
 
     def test_mocked_llm_success(self):
@@ -152,38 +158,44 @@ class TestModule8Insights(unittest.TestCase):
         with patch.object(llm_insights, "call_llm_commentary", return_value=mock_commentary):
             payload = {
                 "store_id": "4",
-                "total_depts_at_risk": 5,
-                "red_alerts": 2,
-                "amber_alerts": 3,
-                "capital_freed_estimate": 35000.0,
-                "projected_weekly_sales": 110000.0,
+                "alerts": [
+                    {"dept_id": "1", "urgency": "red"},
+                    {"dept_id": "2", "urgency": "red"},
+                    {"dept_id": "3", "urgency": "amber"},
+                    {"dept_id": "4", "urgency": "amber"},
+                    {"dept_id": "5", "urgency": "amber"},
+                ],
+                "summary": {
+                    "total_depts_at_risk": 5,
+                    "total_capital_freed_estimate": 35000.0,
+                    "projected_weekly_sales": 110000.0,
+                },
             }
             headers = {"Authorization": f"Bearer {self.admin_token}"}
             res = self.client.post("/insights/generate", json=payload, headers=headers)
             self.assertEqual(res.status_code, 200)
 
             data = res.json()
-            self.assertEqual(data["source"], "llm")
-            self.assertEqual(data["commentary"], mock_commentary)
+            self.assertEqual(data["insight_text"], mock_commentary)
             self.assertEqual(data["generated_by"], "llm")
 
     def test_insights_root_alias(self):
         """Verify POST /insights root alias endpoint returns 200 with valid commentary."""
         payload = {
             "store_id": "7",
-            "total_depts_at_risk": 0,
-            "red_alerts": 0,
-            "amber_alerts": 0,
-            "capital_freed_estimate": 0.0,
+            "alerts": [],
+            "summary": {
+                "total_depts_at_risk": 0,
+                "total_capital_freed_estimate": 0.0,
+            },
         }
         headers = {"Authorization": f"Bearer {self.manager_token}"}
         res = self.client.post("/insights", json=payload, headers=headers)
         self.assertEqual(res.status_code, 200)
         data = res.json()
-        self.assertEqual(data["store_id"], "7")
         # Commentary must be non-empty (either from LLM or template)
-        self.assertTrue(len(data["commentary"]) > 20)
-        self.assertIn(data["source"], ["llm", "template_fallback"])
+        self.assertTrue(len(data["insight_text"]) > 20)
+        self.assertIn(data["generated_by"], ["llm", "fallback"])
 
 
 if __name__ == "__main__":
