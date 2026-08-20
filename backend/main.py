@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import List
 
 import pandas as pd
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -69,27 +69,32 @@ async def http_exception_handler(request, exc: StarletteHTTPException):
     return JSONResponse(status_code=exc.status_code, content=body, headers=getattr(exc, "headers", None))
 
 
-@app.exception_handler(RequestValidationError)
-async def validation_exception_handler(request, exc: RequestValidationError):
-    errors = exc.errors()
-    first = errors[0] if errors else {}
-    loc = " -> ".join(str(p) for p in first.get("loc", []) if p != "body")
-    message = f"{first.get('msg', 'Invalid request')} ({loc})" if loc else first.get("msg", "Invalid request")
-    return JSONResponse(
-        status_code=422,
-        content={"error": True, "message": message, "status_code": 422},
-    )
-
-
 app.include_router(auth.router, tags=["Authentication & RBAC"])
 app.include_router(reorder_routes.router, tags=["Inventory Intelligence"])
-
 app.include_router(llm_insights.router, tags=["Executive Insights"])
 app.include_router(data_routes.router, tags=["Data Summary"])
+
 # Ensure tables/seeds exist for import-time clients (e.g. TestClient without lifespan context).
 database.init_db()
 
-app.include_router(data_routes.router, tags=["Data Summary"])
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """
+    Converts Pydantic 422 validation errors on /insights into the v2 contract
+    400 error shape: { "error": true, "message": "...", "status_code": 400 }.
+    All other validation errors also get the standard shape.
+    """
+    # Extract the first human-readable message
+    first_error = exc.errors()[0] if exc.errors() else {}
+    raw_msg = first_error.get("msg", "Request validation error")
+    # Pydantic wraps model_validator ValueError messages as "Value error, <msg>"
+    if raw_msg.startswith("Value error, "):
+        raw_msg = raw_msg[len("Value error, "):]
+    return JSONResponse(
+        status_code=400,
+        content={"error": True, "message": raw_msg, "status_code": 400},
+    )
 
 
 try:
