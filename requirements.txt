@@ -8,4 +8,8 @@ fastapi
 uvicorn
 streamlit
 matplotlib
-
+httpx
+python-dotenv
+sqlalchemy
+bcrypt
+PyJWT

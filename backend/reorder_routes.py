@@ -12,6 +12,7 @@ from typing import Optional, List
 
 # Import core business calculation engine (keeps routes logic-free)
 import src.reorder_logic as reorder_logic
+import backend.auth as auth
 
 router = APIRouter()
 
@@ -34,45 +35,7 @@ class WhatIfRequest(BaseModel):
     is_holiday_override: Optional[bool] = Field(None, description="Optional override to force holiday status for the range")
 
 # ==========================================
-# 2. TOKEN SECURITY HELPER (Module 8 Dependency)
-# ==========================================
-
-def verify_token(authorization: Optional[str] = Header(None)) -> str:
-    """
-    EXPLANATION FOR THE JUDGING PANEL:
-    As mandated by section 3 of our api-contract-v2.md, endpoints MUST authorize clients.
-    If the 'Authorization' header is missing or lacks the 'Bearer ' prefix, we intercept
-    the call and raise an HTTP 401 Unauthorized exception with a formatted JSON envelope.
-    
-    Since Module 8 (JWT decoding/signing) is still a pending stub in auth.py, we validate the
-    presence of a non-empty token string to allow other teams to test their integrations.
-    """
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error": True,
-                "message": "Missing or invalid token",
-                "status_code": 401
-            }
-        )
-    
-    # Extract JWT string from HTTP header
-    split_header = authorization.split(" ")
-    if len(split_header) < 2 or not split_header[1].strip():
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "error": True,
-                "message": "Missing or invalid token",
-                "status_code": 401
-            }
-        )
-        
-    return split_header[1]
-
-# ==========================================
-# 3. ENDPOINT ROUTE HANDLERS
+# 2. ENDPOINT ROUTE HANDLERS
 # ==========================================
 
 @router.get("/reorder/{store_id}")
@@ -80,7 +43,7 @@ def get_reorder_alerts(
     store_id: str,
     urgency: Optional[str] = Query(None, description="Filter results by stockout urgency level ('red', 'amber', 'green')"),
     as_of_date: str = Query("2026-08-21", description="Reference run date for analysis (default: '2026-08-21')"),
-    token: str = Depends(verify_token)
+    current_user: dict = Depends(auth.get_current_user)
 ):
     """
     EXPLANATION FOR THE JUDGING PANEL:
@@ -134,7 +97,7 @@ def get_reorder_alerts(
 def post_whatif_scenario(
     payload: WhatIfRequest,
     model: Optional[str] = Query("lightgbm", description="Machine learning forecasting model to use ('lightgbm', 'baseline')"),
-    token: str = Depends(verify_token)
+    current_user: dict = Depends(auth.get_current_user)
 ):
     """
     EXPLANATION FOR THE JUDGING PANEL:
