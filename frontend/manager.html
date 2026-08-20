@@ -1,12 +1,678 @@
-<!-- Store manager view. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Manager | Retail Sales Forecasting Platform</title>
-  <link rel="stylesheet" href="style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manager Dashboard | Retail Sales Forecasting Platform</title>
+  
+  <!-- Modern Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    :root {
+      --bg-primary: #0b0f19;
+      --bg-surface: #111827;
+      --bg-card: rgba(17, 24, 39, 0.85);
+      --bg-card-hover: rgba(31, 41, 55, 0.9);
+      --border-color: rgba(255, 255, 255, 0.08);
+      --border-focus: #3b82f6;
+      
+      --text-primary: #f9fafb;
+      --text-secondary: #9ca3af;
+      --text-muted: #6b7280;
+      
+      --accent-blue: #3b82f6;
+      --accent-indigo: #6366f1;
+      --accent-emerald: #10b981;
+      --accent-amber: #f59e0b;
+      --accent-rose: #ef4444;
+      
+      --red-bg: rgba(239, 68, 68, 0.15);
+      --red-border: rgba(239, 68, 68, 0.4);
+      --red-text: #f87171;
+      
+      --amber-bg: rgba(245, 158, 11, 0.15);
+      --amber-border: rgba(245, 158, 11, 0.4);
+      --amber-text: #fbbf24;
+      
+      --green-bg: rgba(16, 185, 129, 0.15);
+      --green-border: rgba(16, 185, 129, 0.4);
+      --green-text: #34d399;
+      
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 16px;
+      --radius-xl: 20px;
+      --shadow-card: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg-primary);
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.08) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(99, 102, 241, 0.08) 0px, transparent 50%);
+      color: var(--text-primary);
+      min-height: 100vh;
+      line-height: 1.5;
+      padding-bottom: 40px;
+    }
+
+    /* Container */
+    .container {
+      max-width: 1380px;
+      margin: 0 auto;
+      padding: 24px 28px;
+    }
+
+    /* Header & Navigation */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 24px;
+      margin-bottom: 28px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .brand-icon {
+      width: 42px;
+      height: 42px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-indigo));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 20px;
+      color: #fff;
+      box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4);
+    }
+
+    .brand-title h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--text-primary);
+    }
+
+    .brand-title p {
+      font-size: 12px;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+
+    .header-badges {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .badge-pill {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 6px 14px;
+      border-radius: 9999px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-color);
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--accent-emerald);
+      box-shadow: 0 0 10px var(--accent-emerald);
+      animation: pulse 2s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* KPI Cards Grid */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 18px;
+      margin-bottom: 24px;
+    }
+
+    .kpi-card {
+      background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 18px 22px;
+      box-shadow: var(--shadow-card);
+      transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+
+    .kpi-card:hover {
+      transform: translateY(-2px);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .kpi-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .kpi-value {
+      font-size: 26px;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--text-primary);
+    }
+
+    .kpi-subtext {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* Filter & Controls Panel */
+    .controls-card {
+      background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-xl);
+      padding: 22px 26px;
+      margin-bottom: 24px;
+      box-shadow: var(--shadow-card);
+    }
+
+    .controls-title {
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 18px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--text-primary);
+    }
+
+    .controls-form {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) 160px;
+      gap: 16px;
+      align-items: flex-end;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .form-group label {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--text-secondary);
+    }
+
+    .form-control {
+      background-color: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+      padding: 10px 14px;
+      font-size: 14px;
+      font-family: inherit;
+      border-radius: var(--radius-md);
+      outline: none;
+      transition: all 0.2s ease;
+      width: 100%;
+    }
+
+    .form-control:focus {
+      border-color: var(--border-focus);
+      box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-indigo));
+      color: #ffffff;
+      border: none;
+      border-radius: var(--radius-md);
+      padding: 11px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 14px rgba(59, 130, 246, 0.35);
+      height: 42px;
+    }
+
+    .btn-primary:hover {
+      opacity: 0.94;
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px rgba(59, 130, 246, 0.45);
+    }
+
+    .btn-primary:active {
+      transform: translateY(0);
+    }
+
+    /* Main Chart Section */
+    .chart-section {
+      background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-xl);
+      padding: 24px 28px;
+      margin-bottom: 28px;
+      box-shadow: var(--shadow-card);
+    }
+
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .section-title {
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--text-primary);
+    }
+
+    .section-meta {
+      font-size: 13px;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .chart-container {
+      position: relative;
+      width: 100%;
+      height: 380px;
+    }
+
+    /* Table Section */
+    .table-section {
+      background: var(--bg-card);
+      backdrop-filter: blur(12px);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-xl);
+      padding: 24px 28px;
+      box-shadow: var(--shadow-card);
+      overflow: hidden;
+    }
+
+    .table-responsive {
+      width: 100%;
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 14px;
+    }
+
+    thead th {
+      background: rgba(0, 0, 0, 0.25);
+      color: var(--text-secondary);
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border-color);
+      white-space: nowrap;
+    }
+
+    tbody tr {
+      border-bottom: 1px solid var(--border-color);
+      transition: background-color 0.15s ease;
+    }
+
+    tbody tr:hover {
+      background-color: var(--bg-card-hover);
+    }
+
+    tbody td {
+      padding: 14px 16px;
+      color: var(--text-primary);
+      vertical-align: middle;
+      font-feature-settings: "tnum";
+    }
+
+    /* Urgency Badges */
+    .badge-urgency {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    .badge-red {
+      background-color: var(--red-bg);
+      border: 1px solid var(--red-border);
+      color: var(--red-text);
+    }
+
+    .badge-amber {
+      background-color: var(--amber-bg);
+      border: 1px solid var(--amber-border);
+      color: var(--amber-text);
+    }
+
+    .badge-green {
+      background-color: var(--green-bg);
+      border: 1px solid var(--green-border);
+      color: var(--green-text);
+    }
+
+    .badge-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .badge-red .badge-dot { background-color: var(--accent-rose); }
+    .badge-amber .badge-dot { background-color: var(--accent-amber); }
+    .badge-green .badge-dot { background-color: var(--accent-emerald); }
+
+    /* Number Styling */
+    .num-highlight {
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+    }
+
+    /* What-If Simulator Card */
+    .whatif-card {
+      background: linear-gradient(180deg, rgba(30, 41, 59, 0.7) 0%, rgba(15, 23, 42, 0.9) 100%);
+      border: 1px solid rgba(99, 102, 241, 0.25);
+      border-radius: var(--radius-xl);
+      padding: 22px 26px;
+      margin-top: 28px;
+      box-shadow: var(--shadow-card);
+    }
+
+    .whatif-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .whatif-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #c7d2fe;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .whatif-form {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) 180px;
+      gap: 16px;
+      align-items: flex-end;
+    }
+
+    .btn-secondary {
+      background: linear-gradient(135deg, #4f46e5, #7c3aed);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius-md);
+      padding: 11px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      height: 42px;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 14px rgba(124, 58, 237, 0.3);
+    }
+
+    .btn-secondary:hover {
+      opacity: 0.94;
+      transform: translateY(-1px);
+    }
+
+    .whatif-result {
+      margin-top: 18px;
+      padding: 14px 18px;
+      border-radius: var(--radius-md);
+      background: rgba(0, 0, 0, 0.4);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .controls-form, .whatif-form {
+        grid-template-columns: 1fr;
+      }
+      .btn-primary, .btn-secondary {
+        width: 100%;
+      }
+      header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 16px;
+      }
+    }
+  </style>
 </head>
 <body>
-  <!-- TODO: manager view UI -->
+
+  <div class="container">
+    
+    <!-- Top Header -->
+    <header>
+      <div class="brand">
+        <div class="brand-icon">M7</div>
+        <div class="brand-title">
+          <h1>Retail Sales Forecasting & Inventory Platform</h1>
+          <p>Module 7: Visual & Functional Bridge Dashboard</p>
+        </div>
+      </div>
+      <div class="header-badges">
+        <span class="badge-pill">
+          <span class="status-dot"></span> API: Online (Port 8000)
+        </span>
+        <span class="badge-pill">Role: Store Manager</span>
+      </div>
+    </header>
+
+    <!-- Top KPI Quick Stats -->
+    <div class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-label">Active Store / Dept <span>🏪</span></div>
+        <div class="kpi-value" id="kpiStoreDept">Store 4 / Dept 92</div>
+        <div class="kpi-subtext">Selected forecasting scope</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Active Model <span>⚡</span></div>
+        <div class="kpi-value" id="kpiModel" style="color: var(--accent-indigo);">LightGBM</div>
+        <div class="kpi-subtext">Primary production engine</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Urgent Stockouts (≤1 wk) <span>🚨</span></div>
+        <div class="kpi-value" id="kpiUrgent" style="color: var(--accent-rose);">3 Depts</div>
+        <div class="kpi-subtext">Immediate reorder required</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Capital Optimization <span>💰</span></div>
+        <div class="kpi-value" id="kpiCapital" style="color: var(--accent-emerald);">$4,190.00</div>
+        <div class="kpi-subtext">Estimated capital to free</div>
+      </div>
+    </div>
+
+    <!-- Controls / Query Form Card -->
+    <div class="controls-card">
+      <div class="controls-title">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+        Forecast Horizon & Store Parameters
+      </div>
+      <div class="controls-form">
+        <div class="form-group">
+          <label for="storeId">Store ID</label>
+          <input type="text" id="storeId" class="form-control" value="4" placeholder="e.g. 4" required>
+        </div>
+        <div class="form-group">
+          <label for="deptId">Dept ID</label>
+          <input type="text" id="deptId" class="form-control" value="92" placeholder="e.g. 92" required>
+        </div>
+        <div class="form-group">
+          <label for="startDate">Start Date (YYYY-MM-DD)</label>
+          <input type="date" id="startDate" class="form-control" value="2026-08-21" required>
+        </div>
+        <div class="form-group">
+          <label for="endDate">End Date (YYYY-MM-DD)</label>
+          <input type="date" id="endDate" class="form-control" value="2026-09-18" required>
+        </div>
+        <div class="form-group">
+          <label for="modelSelect">Model</label>
+          <select id="modelSelect" class="form-control">
+            <option value="lightgbm" selected>LightGBM (Prod)</option>
+            <option value="prophet">Prophet (CI Bounds)</option>
+            <option value="sarima">SARIMA</option>
+            <option value="baseline">Seasonal Naïve</option>
+          </select>
+        </div>
+        <button id="loadChartBtn" class="btn-primary" type="button">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+          Load Chart
+        </button>
+      </div>
+    </div>
+
+    <!-- Sales Forecast Line Graph Section -->
+    <div class="chart-section">
+      <div class="section-header">
+        <div>
+          <div class="section-title">Weekly Sales Trajectory & Forecast Projection</div>
+          <div class="section-meta">
+            <span id="chartRangeMeta">Displaying 5 weekly forecast points (Friday-aligned)</span>
+          </div>
+        </div>
+      </div>
+      <div class="chart-container">
+        <canvas id="salesChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Inventory Health & Reorder Intelligence Table -->
+    <div class="table-section">
+      <div class="section-header">
+        <div>
+          <div class="section-title">Department Inventory & Stockout Reorder Matrix</div>
+          <div class="section-meta">
+            <span>Automated stockout alerts categorized by urgency threshold</span>
+          </div>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Dept</th>
+              <th>Current Stock</th>
+              <th>Demand</th>
+              <th>Weeks to Stockout</th>
+              <th>Urgency</th>
+              <th>Reorder Units</th>
+              <th>Capital Freed</th>
+            </tr>
+          </thead>
+          <tbody id="reorderTableBody">
+            <!-- Populated dynamically by app.js -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- What-If Promotional Simulation Scenario Tool -->
+    <div class="whatif-card">
+      <div class="whatif-header">
+        <div class="whatif-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>
+          Promotional "What-If" Scenario Simulator (POST /whatif)
+        </div>
+        <span style="font-size: 12px; color: #a5b4fc;">Simulates discount lift & holiday overrides</span>
+      </div>
+      <div class="whatif-form">
+        <div class="form-group">
+          <label for="whatifMarkdown" style="color: #c7d2fe;">Markdown Amount ($)</label>
+          <input type="number" id="whatifMarkdown" class="form-control" value="5000" min="0" step="500">
+        </div>
+        <div class="form-group">
+          <label for="whatifHoliday" style="color: #c7d2fe;">Holiday Override</label>
+          <select id="whatifHoliday" class="form-control">
+            <option value="none">Default (Historical)</option>
+            <option value="true">Force Holiday (True)</option>
+            <option value="false">Force Non-Holiday (False)</option>
+          </select>
+        </div>
+        <button id="runWhatIfBtn" class="btn-secondary" type="button">
+          Run Simulation
+        </button>
+      </div>
+      <div id="whatifResultBox" class="whatif-result">
+        <div>
+          <span style="color: var(--text-secondary); font-size: 13px;">Projected Lift: </span>
+          <strong id="whatifLiftDisplay" style="color: #34d399; font-size: 16px;">+21.9%</strong>
+        </div>
+        <div style="font-size: 13px; color: var(--text-secondary);" id="whatifSummaryText">
+          Baseline vs Promotional Forecast calculated.
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Local Frontend Logic Script -->
+  <script src="app.js"></script>
 </body>
 </html>
