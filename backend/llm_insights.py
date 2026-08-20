@@ -37,72 +37,78 @@ logger.setLevel(logging.INFO)
 class InsightRequest(BaseModel):
     """
     Structured summary metrics payload for executive commentary generation.
-    Supports both direct metric inputs and payloads mirroring Module 6 /reorder responses.
+    Accepts the exact shape of Module 6's /reorder response.
+    Required fields: store_id, alerts, summary.
+    Extra/unrecognised fields are silently ignored (v2 contract requirement).
     """
     store_id: str = Field(..., description="Store Identifier (e.g. '4')")
+    # Derived fields — populated by the validator from /reorder shape
     total_depts_at_risk: int = Field(0, description="Total number of departments showing stockout risk")
     red_alerts: int = Field(0, description="Number of departments with urgent (red) stockout urgency")
     amber_alerts: int = Field(0, description="Number of departments with moderate (amber) stockout urgency")
     capital_freed_estimate: float = Field(0.0, description="Estimated working capital in dollars freed by inventory optimization")
     projected_weekly_sales: Optional[float] = Field(None, description="Total projected weekly sales for the store/window in dollars")
 
-    # Extra fields (such as 'alerts' or 'summary' from /reorder) are ignored, not rejected
+    # Extra fields (such as 'generated_at', 'data_note' from /reorder) are ignored, not rejected
     model_config = {"extra": "ignore"}
 
     @model_validator(mode="before")
     @classmethod
     def parse_flexible_payload(cls, data: Any) -> Any:
         """
-        Extracts metrics from nested /reorder or summary shapes if provided.
+        Validates required contract fields and extracts metrics from the
+        nested /reorder payload shape (alerts list + summary dict).
+        Raises 400 with the standard error shape for missing required fields.
         """
-        if isinstance(data, dict):
-            alerts = data.get("alerts")
-            summary = data.get("summary")
+        if not isinstance(data, dict):
+            return data
 
-            if isinstance(alerts, list):
-                if "red_alerts" not in data:
-                    data["red_alerts"] = sum(
-                        1 for a in alerts if isinstance(a, dict) and str(a.get("urgency", "")).lower() == "red"
-                    )
-                if "amber_alerts" not in data:
-                    data["amber_alerts"] = sum(
-                        1 for a in alerts if isinstance(a, dict) and str(a.get("urgency", "")).lower() == "amber"
-                    )
-                if "total_depts_at_risk" not in data:
-                    data["total_depts_at_risk"] = len(alerts)
+        # --- Required field validation (v2 contract) ---
+        for required_field in ("store_id", "alerts", "summary"):
+            if required_field not in data or data[required_field] is None:
+                raise ValueError(f"Missing required field: {required_field}")
 
-            if isinstance(summary, dict):
-                if "total_depts_at_risk" not in data and "total_depts_at_risk" in summary:
-                    try:
-                        data["total_depts_at_risk"] = int(summary["total_depts_at_risk"])
-                    except (ValueError, TypeError):
-                        pass
-                if "capital_freed_estimate" not in data:
-                    val = summary.get("total_capital_freed_estimate", summary.get("capital_freed_estimate", 0.0))
-                    try:
-                        data["capital_freed_estimate"] = float(val)
-                    except (ValueError, TypeError):
-                        data["capital_freed_estimate"] = 0.0
-                if "projected_weekly_sales" not in data and "projected_weekly_sales" in summary:
-                    try:
-                        data["projected_weekly_sales"] = float(summary["projected_weekly_sales"])
-                    except (ValueError, TypeError):
-                        pass
+        alerts = data.get("alerts")
+        summary = data.get("summary")
+
+        if isinstance(alerts, list):
+            if "red_alerts" not in data:
+                data["red_alerts"] = sum(
+                    1 for a in alerts if isinstance(a, dict) and str(a.get("urgency", "")).lower() == "red"
+                )
+            if "amber_alerts" not in data:
+                data["amber_alerts"] = sum(
+                    1 for a in alerts if isinstance(a, dict) and str(a.get("urgency", "")).lower() == "amber"
+                )
+            if "total_depts_at_risk" not in data:
+                data["total_depts_at_risk"] = len(alerts)
+
+        if isinstance(summary, dict):
+            if "total_depts_at_risk" not in data and "total_depts_at_risk" in summary:
+                try:
+                    data["total_depts_at_risk"] = int(summary["total_depts_at_risk"])
+                except (ValueError, TypeError):
+                    pass
+            if "capital_freed_estimate" not in data:
+                val = summary.get("total_capital_freed_estimate", summary.get("capital_freed_estimate", 0.0))
+                try:
+                    data["capital_freed_estimate"] = float(val)
+                except (ValueError, TypeError):
+                    data["capital_freed_estimate"] = 0.0
+            if "projected_weekly_sales" not in data and "projected_weekly_sales" in summary:
+                try:
+                    data["projected_weekly_sales"] = float(summary["projected_weekly_sales"])
+                except (ValueError, TypeError):
+                    pass
         return data
 
 
 class InsightResponse(BaseModel):
     """
-    Executive commentary response schema.
+    Executive commentary response schema — exactly matches v2 API contract.
     """
-    store_id: str = Field(..., description="Store Identifier")
-    commentary: str = Field(..., description="2-3 sentence actionable executive business commentary")
-    generated_at: str = Field(..., description="ISO 8601 UTC timestamp of insight generation")
-    source: str = Field(..., description="Commentary source: 'llm' or 'template_fallback'")
-    
-    # Contract compatibility aliases
-    insight_text: Optional[str] = Field(None, description="Alias for commentary for contract v2 compatibility")
-    generated_by: Optional[str] = Field(None, description="Alias for source ('llm' or 'fallback')")
+    insight_text: str = Field(..., description="2-3 sentence actionable executive business commentary")
+    generated_by: str = Field(..., description="Commentary source: 'llm' or 'fallback'")
 
 
 # =============================================================================
@@ -290,7 +296,7 @@ Generate 2-3 sentences of actionable executive commentary:"""
 
     # 1. Try Groq if configured
     if groq_api_key:
-        groq_model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
+        groq_model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
         result = _call_http_llm(
             endpoint_url="https://api.groq.com/openai/v1/chat/completions",
             api_key=groq_api_key,
@@ -361,60 +367,53 @@ def generate_executive_commentary(payload: InsightRequest) -> Tuple[str, str]:
 # 4. FASTAPI ROUTER & ENDPOINTS
 # =============================================================================
 
-router = APIRouter(prefix="/insights", tags=["Executive Insights"])
+router = APIRouter(tags=["Executive Insights"])
 
 
-@router.post(
-    "/generate",
-    response_model=InsightResponse,
-    status_code=status.HTTP_200_OK,
-    summary="Generate Executive Inventory Commentary",
-    description=(
-        "Produces 2-3 sentences of actionable business commentary from structured summary metrics. "
-        "Utilizes LLM if configured or deterministic rule-based template fallback on failure. "
-        "Requires valid JWT with manager or admin role."
-    ),
-)
-def generate_insights_endpoint(
-    payload: InsightRequest,
-    current_user: Dict[str, Any] = Depends(auth.require_manager_or_admin),
-) -> InsightResponse:
-    """
-    POST /insights/generate handler. Enforces store isolation for managers.
-    """
-    auth.enforce_store_access(payload.store_id, current_user)
+def _build_insight_response(payload: InsightRequest) -> InsightResponse:
+    """Shared handler — generate commentary and return the contract-compliant response."""
     commentary_text, source = generate_executive_commentary(payload)
-    now_iso = datetime.now(timezone.utc).isoformat()
-
     return InsightResponse(
-        store_id=payload.store_id,
-        commentary=commentary_text,
-        generated_at=now_iso,
-        source=source,
         insight_text=commentary_text,
         generated_by="llm" if source == "llm" else "fallback",
     )
 
 
 @router.post(
-    "",
+    "/insights",
     response_model=InsightResponse,
     status_code=status.HTTP_200_OK,
-    summary="Generate Executive Inventory Commentary (Root Alias)",
-    description="Alias endpoint matching POST /insights specifications.",
-    include_in_schema=True,
+    summary="Generate Executive Inventory Commentary",
+    description=(
+        "Accepts a Module 6 /reorder payload and produces 2-3 sentences of actionable executive "
+        "commentary. Uses LLM (Groq/OpenAI) when an API key is configured; falls back to a "
+        "deterministic rule-based template on timeout or failure. "
+        "Requires valid JWT with manager or admin role."
+    ),
 )
-@router.post(
-    "/",
-    response_model=InsightResponse,
-    status_code=status.HTTP_200_OK,
-    include_in_schema=False,
-)
-def generate_insights_root_alias(
+def post_insights(
     payload: InsightRequest,
     current_user: Dict[str, Any] = Depends(auth.require_manager_or_admin),
 ) -> InsightResponse:
     """
-    POST /insights root alias handler for contract v2 compatibility.
+    POST /insights — v2 contract primary endpoint.
+    Enforces store-level access isolation for manager role.
     """
-    return generate_insights_endpoint(payload=payload, current_user=current_user)
+    auth.enforce_store_access(payload.store_id, current_user)
+    return _build_insight_response(payload)
+
+
+@router.post(
+    "/insights/generate",
+    response_model=InsightResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Generate Executive Inventory Commentary (Explicit Path)",
+    description="Explicit /insights/generate alias — same behaviour as POST /insights.",
+    include_in_schema=True,
+)
+def post_insights_generate(
+    payload: InsightRequest,
+    current_user: Dict[str, Any] = Depends(auth.require_manager_or_admin),
+) -> InsightResponse:
+    auth.enforce_store_access(payload.store_id, current_user)
+    return _build_insight_response(payload)
