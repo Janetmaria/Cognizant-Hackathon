@@ -11,7 +11,10 @@ from typing import List
 
 import pandas as pd
 from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # Load .env file automatically (supports GROQ_API_KEY, OPENAI_API_KEY, JWT_SECRET_KEY, etc.)
 try:
@@ -48,6 +51,35 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ==========================================
+# GLOBAL ERROR SHAPE — every response matches docs/api_contract.md's
+# {"error": true, "message": "...", "status_code": N}, never FastAPI's
+# default {"detail": ...} envelope.
+# ==========================================
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request, exc: StarletteHTTPException):
+    detail = exc.detail
+    if isinstance(detail, dict) and {"error", "message", "status_code"} <= detail.keys():
+        body = detail
+    else:
+        body = {"error": True, "message": str(detail), "status_code": exc.status_code}
+    return JSONResponse(status_code=exc.status_code, content=body, headers=getattr(exc, "headers", None))
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request, exc: RequestValidationError):
+    errors = exc.errors()
+    first = errors[0] if errors else {}
+    loc = " -> ".join(str(p) for p in first.get("loc", []) if p != "body")
+    message = f"{first.get('msg', 'Invalid request')} ({loc})" if loc else first.get("msg", "Invalid request")
+    return JSONResponse(
+        status_code=422,
+        content={"error": True, "message": message, "status_code": 422},
+    )
+
 
 app.include_router(auth.router, tags=["Authentication & RBAC"])
 app.include_router(reorder_routes.router, tags=["Inventory Intelligence"])

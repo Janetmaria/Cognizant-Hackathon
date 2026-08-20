@@ -1,11 +1,4 @@
 """
-Module 2 - /data/summary route.
-
-See docs/api_contract.md for the response contract.
-"""
-
-# TODO(Module 2): implement /data/summary endpoint.
-"""
 Module 2 - EDA-derived summary statistics endpoint.
 
 Exposes GET /data/summary per docs/api_contract.md. Backing calculations
@@ -14,30 +7,17 @@ re-runs the same aggregations to serve them live, it doesn't introduce
 new logic beyond what was sanity-checked in the notebook.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Header
-from typing import Optional
+from typing import Any, Dict
+
+from fastapi import APIRouter, Depends, HTTPException
 import pandas as pd
 
+import backend.auth as auth
 import config
 
 router = APIRouter()
 
 TOP_N = 5  # matches notebooks/eda.ipynb section 8 — not pinned by the API contract
-
-
-def verify_token(authorization: Optional[str] = Header(None)) -> str:
-    """
-    EXPLANATION FOR THE JUDGING PANEL:
-    Same pattern as backend/reorder_routes.py and backend/main.py — Module 8's
-    real JWT verification is still a stub, so this only checks that a Bearer
-    token is present, to unblock integration testing across modules.
-    """
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=401,
-            detail={"error": True, "message": "Missing or invalid token", "status_code": 401}
-        )
-    return authorization.split(" ")[1]
 
 
 def _load_full_data() -> pd.DataFrame:
@@ -47,7 +27,7 @@ def _load_full_data() -> pd.DataFrame:
 
 
 @router.get("/data/summary")
-def get_data_summary(token: str = Depends(verify_token)):
+def get_data_summary(current_user: Dict[str, Any] = Depends(auth.require_manager_or_admin)):
     """
     EXPLANATION FOR THE JUDGING PANEL:
     Returns dataset-wide summary statistics used across the platform:
