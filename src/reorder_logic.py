@@ -14,10 +14,14 @@ import numpy as np
 # Define single source of truth path for predictions database
 try:
     import config
-    PREDICTIONS_PATH = config.PROCESSED_DIR / "lightgbm_predictions.csv"
+    PREDICTIONS_PATH = config.PROCESSED_DIR / "hybrid_predictions.csv"
+    if not PREDICTIONS_PATH.exists():
+        PREDICTIONS_PATH = config.PROCESSED_DIR / "lightgbm_predictions.csv"
 except (ImportError, AttributeError):
     # Fallback to local workspace paths if config module is unavailable
-    PREDICTIONS_PATH = Path("data/processed/lightgbm_predictions.csv")
+    PREDICTIONS_PATH = Path("data/processed/hybrid_predictions.csv")
+    if not PREDICTIONS_PATH.exists():
+        PREDICTIONS_PATH = Path("data/processed/lightgbm_predictions.csv")
 
 # ==========================================
 # 1. DATE MAPPING UTILITIES
@@ -170,8 +174,8 @@ def get_reorder_alerts(store_id: str, urgency_filter: str = None, as_of_date: st
     for _, row in store_df.iterrows():
         dept_id = str(row["dept_id"])
         
-        # Extract forecast, defaulting to lgbm_pred, then baseline_pred, then physical sales
-        sales_forecast = float(row.get("lgbm_pred", row.get("baseline_pred", row.get("weekly_sales", 0.0))))
+        # Extract forecast, defaulting to hybrid prediction, then lgbm_pred, then stat_prediction, then baseline_pred, then weekly_sales
+        sales_forecast = float(row.get("prediction", row.get("lgbm_pred", row.get("stat_prediction", row.get("baseline_pred", row.get("weekly_sales", 0.0))))))
         # Negative sales can happen in retail due to returns; we clip it at 0 to avoid computational errors
         sales_forecast = max(0.0, sales_forecast)
         
@@ -313,9 +317,9 @@ def simulate_whatif(store_id: str, dept_id: str, start_date: str, end_date: str,
         
         # Retrieve primary baseline forecast
         if model.lower() == "baseline":
-            original_sales = float(row.get("baseline_pred", row.get("weekly_sales", 0.0)))
+            original_sales = float(row.get("stat_prediction", row.get("baseline_pred", row.get("weekly_sales", 0.0))))
         else:
-            original_sales = float(row.get("lgbm_pred", row.get("baseline_pred", row.get("weekly_sales", 0.0))))
+            original_sales = float(row.get("prediction", row.get("lgbm_pred", row.get("stat_prediction", row.get("baseline_pred", row.get("weekly_sales", 0.0))))))
             
         original_sales = max(0.0, original_sales)
         original_holiday = bool(row.get("is_holiday", False))

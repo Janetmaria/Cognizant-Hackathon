@@ -29,15 +29,15 @@ class TestModule6(unittest.TestCase):
         # Holdout date range: 2012-08-24 to 2012-09-07.
         mock_data = [
             # Store 4, Dept 92 (High Demand, Red State simulation target)
-            {"store_id": 4, "dept_id": 92, "date": "2012-08-24", "weekly_sales": 20000.0, "lgbm_pred": 22140.5, "is_holiday": False},
-            {"store_id": 4, "dept_id": 92, "date": "2012-08-31", "weekly_sales": 21000.0, "lgbm_pred": 23000.0, "is_holiday": False},
-            {"store_id": 4, "dept_id": 92, "date": "2012-09-07", "weekly_sales": 22000.0, "lgbm_pred": 24000.0, "is_holiday": True},
+            {"store_id": 4, "dept_id": 92, "date": "2012-08-24", "weekly_sales": 20000.0, "prediction": 22140.5, "stat_prediction": 21000.0, "is_holiday": False},
+            {"store_id": 4, "dept_id": 92, "date": "2012-08-31", "weekly_sales": 21000.0, "prediction": 23000.0, "stat_prediction": 22500.0, "is_holiday": False},
+            {"store_id": 4, "dept_id": 92, "date": "2012-09-07", "weekly_sales": 22000.0, "prediction": 24000.0, "stat_prediction": 23000.0, "is_holiday": True},
             
             # Store 4, Dept 95 (Medium Demand, Amber/Green State simulation target)
-            {"store_id": 4, "dept_id": 95, "date": "2012-08-24", "weekly_sales": 10000.0, "lgbm_pred": 12000.0, "is_holiday": False},
+            {"store_id": 4, "dept_id": 95, "date": "2012-08-24", "weekly_sales": 10000.0, "prediction": 12000.0, "stat_prediction": 11000.0, "is_holiday": False},
             
             # Store 4, Dept 10 (Zero Demand placeholder)
-            {"store_id": 4, "dept_id": 10, "date": "2012-08-24", "weekly_sales": 0.0, "lgbm_pred": 0.0, "is_holiday": False}
+            {"store_id": 4, "dept_id": 10, "date": "2012-08-24", "weekly_sales": 0.0, "prediction": 0.0, "stat_prediction": 0.0, "is_holiday": False}
         ]
         
         df = pd.DataFrame(mock_data)
@@ -169,6 +169,20 @@ class TestModule6(unittest.TestCase):
         # Adjusted sales (override to non-holiday) = 24000 / 1.074 = 22346.37
         # Lift pct = (22346.37 - 24000) / 24000 * 100 = -6.89%
         self.assertAlmostEqual(whatif_override["projected_lift_pct"], -6.89, places=1)
+        
+    def test_whatif_promo_baseline_hybrid(self):
+        """
+        Validates `/whatif` baseline model queries the `stat_prediction` column.
+        """
+        whatif_baseline = reorder_logic.simulate_whatif(
+            store_id="4", dept_id="92",
+            start_date="2026-08-21", end_date="2026-08-21",
+            markdown_amount=0.0, is_holiday_override=None,
+            model="baseline"
+        )
+        self.assertEqual(len(whatif_baseline["baseline_predictions"]), 1)
+        # Expected baseline sales for store 4, dept 92 on 2012-08-24 is 21000.0 (from stat_prediction)
+        self.assertEqual(whatif_baseline["baseline_predictions"][0]["predicted_weekly_sales"], 21000.0)
 
 if __name__ == "__main__":
     unittest.main()
