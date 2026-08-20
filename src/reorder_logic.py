@@ -115,18 +115,99 @@ def get_simulated_stock_units(store_id: str, dept_id: str, weekly_demand_units: 
 # 3. REORDER ALERT & INVENTORY METRICS ENGINE
 # ==========================================
 
+def _compute_alert(row) -> dict:
+    """
+    Shared per-row alert math used by both get_reorder_alerts() (single store, read from
+    PREDICTIONS_PATH) and get_reorder_alerts_from_df() (arbitrary/multi-store rows, e.g.
+    matched from an uploaded CSV). Runs all the key business calculations:
+    1. Demand in Units = Forecasted Dollar Sales / Average Unit Price.
+    2. Weeks to Stockout = Current Stock Units / Weekly Demand Units.
+    3. Safety Stock Goal = 2.0 weeks of demand (1.0 week lead time + 1.0 week safety buffer).
+    4. Recommended Reorder Units = Target Safety Stock - Current Stock Units (clipped to 0 if we have enough).
+    5. Optimal Max Stock Level = 4.0 weeks of demand.
+    6. Capital Freed Estimate = (Current Stock - Optimal Max Stock) * Average Unit Price, if overstocked.
+    """
+    dept_id = str(row["dept_id"])
+    store_str = str(row["store_id"])
+
+    # Extract forecast, defaulting to hybrid prediction, then lgbm_pred, then stat_prediction, then baseline_pred, then weekly_sales
+    sales_forecast = float(row.get("prediction", row.get("lgbm_pred", row.get("stat_prediction", row.get("baseline_pred", row.get("weekly_sales", 0.0))))))
+    # Negative sales can happen in retail due to returns; we clip it at 0 to avoid computational errors
+    sales_forecast = max(0.0, sales_forecast)
+
+    unit_price = get_simulated_unit_price(dept_id)
+    predicted_weekly_demand_units = sales_forecast / unit_price
+
+    # Calculate current stock levels deterministically
+    current_stock = get_simulated_stock_units(store_str, dept_id, predicted_weekly_demand_units)
+
+    # Calculate weeks to stockout using weekly demand units
+    if predicted_weekly_demand_units > 0:
+        weeks_to_stockout = current_stock / predicted_weekly_demand_units
+    else:
+        # If demand is 0, stock will never deplete
+        weeks_to_stockout = 99.0
+
+    # Urgency boundaries (strictly adhering to API contract Option A):
+    # Red: <= 1.0 week (High Risk: Stockout will happen before standard lead time replenishment)
+    # Amber: 1.0 to 2.0 weeks (Medium Risk: Needs near-future replenishment)
+    # Green: > 2.0 weeks (Low Risk: Safe stock level)
+    if weeks_to_stockout <= 1.0:
+        urgency = "red"
+    elif weeks_to_stockout <= 2.0:
+        urgency = "amber"
+    else:
+        urgency = "green"
+
+    # Calculate safety stock targets (Target Safety Stock = 2.0 weeks of demand)
+    target_safety = int(np.ceil(2.0 * predicted_weekly_demand_units))
+    recommended_reorder = max(0, target_safety - current_stock)
+
+    # Calculate overstock thresholds (Optimal Max Stock = 4.0 weeks of demand)
+    optimal_max = int(np.ceil(4.0 * predicted_weekly_demand_units))
+
+    # If current stock exceeds optimal maximum stock, calculate the excess valuation
+    if current_stock > optimal_max:
+        capital_freed = float((current_stock - optimal_max) * unit_price)
+    else:
+        capital_freed = 0.0
+
+    return {
+        "dept_id": dept_id,
+        "current_stock_units": current_stock,
+        "predicted_weekly_demand_units": int(np.ceil(predicted_weekly_demand_units)),
+        "weeks_to_stockout": round(weeks_to_stockout, 2),
+        "urgency": urgency,
+        "recommended_reorder_units": recommended_reorder,
+        "capital_freed_estimate": round(capital_freed, 2),
+    }
+
+
+def get_reorder_alerts_from_df(df: pd.DataFrame, urgency_filter: str = None) -> list:
+    """
+    Computes reorder alerts for an arbitrary predictions-shaped DataFrame (store_id,
+    dept_id, and a forecast column) instead of reading PREDICTIONS_PATH from disk —
+    used by the CSV upload flow to score just the (store, dept) rows matched from the
+    uploaded file, which may span multiple stores. Reuses the exact same pricing/
+    stock-simulation/urgency math as get_reorder_alerts() via _compute_alert().
+    Unlike get_reorder_alerts(), each alert includes a "store_id" key since results
+    can span more than one store.
+    """
+    alerts = []
+    for _, row in df.iterrows():
+        alert = _compute_alert(row)
+        if urgency_filter and urgency_filter.lower() != alert["urgency"]:
+            continue
+        alerts.append({"store_id": str(row["store_id"]), **alert})
+    return alerts
+
+
 def get_reorder_alerts(store_id: str, urgency_filter: str = None, as_of_date: str = "2026-08-21") -> dict:
     """
     EXPLANATION FOR THE JUDGING PANEL:
     This function processes prediction forecasts and calculates inventory health metrics
-    per department for a specific store. It runs all the key business calculations:
-    1. Demand in Units = Forecasted Dollar Sales / Average Unit Price.
-    2. Weeks to Stockout = Current Stock Units / Weekly Demand Units.
-    3. Daily Pace = Weekly Demand Units / 7.
-    4. Safety Stock Goal = 2.0 weeks of demand (1.0 week lead time + 1.0 week safety buffer).
-    5. Recommended Reorder Units = Target Safety Stock - Current Stock Units (clipped to 0 if we have enough).
-    6. Optimal Max Stock Level = 4.0 weeks of demand.
-    7. Capital Freed Estimate = (Current Stock - Optimal Max Stock) * Average Unit Price, if overstocked.
+    per department for a specific store. Business calculations are shared with
+    get_reorder_alerts_from_df() via _compute_alert() — see that function for the formulas.
     """
     store_str = str(store_id)
     
@@ -172,70 +253,20 @@ def get_reorder_alerts(store_id: str, urgency_filter: str = None, as_of_date: st
     total_capital_freed_estimate = 0.0
     
     for _, row in store_df.iterrows():
-        dept_id = str(row["dept_id"])
-        
-        # Extract forecast, defaulting to hybrid prediction, then lgbm_pred, then stat_prediction, then baseline_pred, then weekly_sales
-        sales_forecast = float(row.get("prediction", row.get("lgbm_pred", row.get("stat_prediction", row.get("baseline_pred", row.get("weekly_sales", 0.0))))))
-        # Negative sales can happen in retail due to returns; we clip it at 0 to avoid computational errors
-        sales_forecast = max(0.0, sales_forecast)
-        
-        unit_price = get_simulated_unit_price(dept_id)
-        predicted_weekly_demand_units = sales_forecast / unit_price
-        
-        # Calculate current stock levels deterministically
-        current_stock = get_simulated_stock_units(store_str, dept_id, predicted_weekly_demand_units)
-        
-        # Calculate weeks to stockout using weekly demand units
-        if predicted_weekly_demand_units > 0:
-            weeks_to_stockout = current_stock / predicted_weekly_demand_units
-        else:
-            # If demand is 0, stock will never deplete
-            weeks_to_stockout = 99.0
-            
-        # Urgency boundaries (strictly adhering to API contract Option A):
-        # Red: <= 1.0 week (High Risk: Stockout will happen before standard lead time replenishment)
-        # Amber: 1.0 to 2.0 weeks (Medium Risk: Needs near-future replenishment)
-        # Green: > 2.0 weeks (Low Risk: Safe stock level)
-        if weeks_to_stockout <= 1.0:
-            urgency = "red"
-        elif weeks_to_stockout <= 2.0:
-            urgency = "amber"
-        else:
-            urgency = "green"
-            
+        alert = _compute_alert(row)
+
         # Apply Query string filter mapping
-        if urgency_filter and urgency_filter.lower() != urgency:
+        if urgency_filter and urgency_filter.lower() != alert["urgency"]:
             continue
-            
+
         # Count depts in Red/Amber buckets as at-risk
-        if urgency in ["red", "amber"]:
+        if alert["urgency"] in ["red", "amber"]:
             total_depts_at_risk += 1
-            
-        # Calculate safety stock targets (Target Safety Stock = 2.0 weeks of demand)
-        target_safety = int(np.ceil(2.0 * predicted_weekly_demand_units))
-        recommended_reorder = max(0, target_safety - current_stock)
-        
-        # Calculate overstock thresholds (Optimal Max Stock = 4.0 weeks of demand)
-        optimal_max = int(np.ceil(4.0 * predicted_weekly_demand_units))
-        
-        # If current stock exceeds optimal maximum stock, calculate the excess valuation
-        if current_stock > optimal_max:
-            capital_freed = float((current_stock - optimal_max) * unit_price)
-        else:
-            capital_freed = 0.0
-            
-        total_capital_freed_estimate += capital_freed
-        
-        alerts.append({
-            "dept_id": dept_id,
-            "current_stock_units": current_stock,
-            "predicted_weekly_demand_units": int(np.ceil(predicted_weekly_demand_units)),
-            "weeks_to_stockout": round(weeks_to_stockout, 2),
-            "urgency": urgency,
-            "recommended_reorder_units": recommended_reorder,
-            "capital_freed_estimate": round(capital_freed, 2)
-        })
-        
+
+        total_capital_freed_estimate += alert["capital_freed_estimate"]
+
+        alerts.append(alert)
+
     return {
         "store_id": store_str,
         "generated_at": as_of_date,
