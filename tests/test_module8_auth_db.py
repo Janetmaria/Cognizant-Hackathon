@@ -61,6 +61,9 @@ def test_db_path() -> Generator[Path, None, None]:
         
         yield test_db_file
         
+        # Dispose test engine to release file lock on Windows
+        backend.database.engine.dispose()
+
         # Restore original database configuration
         backend.database.DB_PATH = original_db_path
         backend.database.DATA_DIR = original_data_dir

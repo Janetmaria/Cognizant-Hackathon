@@ -25,10 +25,8 @@ import pandas as pd
 try:
     from prophet import Prophet
 except ImportError:
-    try:
-        from fbprophet import Prophet
-    except ImportError:
-        Prophet = None
+    Prophet = None
+
 
 # Add project root directory to python path to enable imports from config and src
 sys.path.append(str(Path(__file__).resolve().parents[2]))

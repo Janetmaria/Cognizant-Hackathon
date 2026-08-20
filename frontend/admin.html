@@ -1,12 +1,442 @@
-<!-- Admin view. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Admin | Retail Sales Forecasting Platform</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Executive Hub | RetailPulse AI</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22><text y=%2226%22 font-size=%2226%22>🛡️</text></svg>">
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-  <!-- TODO: admin view UI -->
+
+  <!-- Navigation Bar -->
+  <header class="navbar">
+    <a href="index.html" class="nav-brand">
+      <div class="brand-icon">🛡️</div>
+      <div class="brand-text">
+        <h1>RetailPulse Executive Admin</h1>
+        <span>Chain-wide Operations & Analytics</span>
+      </div>
+    </a>
+    <div class="nav-actions">
+      <div class="nav-badge">
+        <span class="status-dot"></span>
+        <span id="adminUsernameDisplay">Administrator</span>
+      </div>
+      <a href="manager.html" class="btn btn-secondary btn-sm">Store Manager View</a>
+      <button class="btn btn-secondary btn-sm" onclick="logout()">Logout</button>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <!-- Privileged Alert Banner -->
+    <div style="background: rgba(99,102,241,0.1); border: 1px solid rgba(99,102,241,0.3); border-radius: var(--radius-md); padding: 1rem 1.5rem; margin-bottom: 1.75rem; display: flex; align-items: center; justify-content: space-between;">
+      <div style="display: flex; align-items: center; gap: 0.75rem;">
+        <span style="font-size: 1.4rem;">🔐</span>
+        <div>
+          <div style="font-weight: 700; color: #fff; font-size: 0.95rem;">Privileged Admin Access Enforced</div>
+          <div style="font-size: 0.8rem; color: var(--text-secondary);">Accessing aggregated metrics across all 45 stores and 81 departments via server-side RBAC.</div>
+        </div>
+      </div>
+      <div class="badge badge-indigo">Role: Admin</div>
+    </div>
+
+    <!-- Platform-wide Aggregate KPI Overview -->
+    <section class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-icon indigo">🏢</div>
+        <div class="kpi-content">
+          <div class="kpi-label">Total Chain Sales</div>
+          <div class="kpi-value" id="kpiChainSales">$0.00</div>
+          <div class="kpi-subtext" id="kpiDateRange">Historical coverage</div>
+        </div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon cyan">🏬</div>
+        <div class="kpi-content">
+          <div class="kpi-label">Active Stores & Depts</div>
+          <div class="kpi-value" id="kpiStoresDepts">45 / 81</div>
+          <div class="kpi-subtext">Walmart regional network</div>
+        </div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon emerald">🎉</div>
+        <div class="kpi-content">
+          <div class="kpi-label">Holiday Sales Lift</div>
+          <div class="kpi-value" id="kpiHolidayLift">+0.0%</div>
+          <div class="kpi-subtext">Spike over standard weeks</div>
+        </div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon amber">🏷️</div>
+        <div class="kpi-content">
+          <div class="kpi-label">Markdown Promotion Lift</div>
+          <div class="kpi-value" id="kpiMarkdownLift">+0.0%</div>
+          <div class="kpi-subtext">Lift when markdowns active</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 1: Top Stores and Departments Visualizations -->
+    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 2rem;">
+      <!-- Top Stores Chart -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">🏆 Top 5 Performing Stores</h2>
+            <p class="card-subtitle">Highest cumulative revenue across network</p>
+          </div>
+        </div>
+        <div class="chart-container" style="height: 280px;">
+          <canvas id="topStoresChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Top Departments Chart -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h2 class="card-title">📊 Top 5 Revenue Departments</h2>
+            <p class="card-subtitle">Category leaders by sales volume</p>
+          </div>
+        </div>
+        <div class="chart-container" style="height: 280px;">
+          <canvas id="topDeptsChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 2: Model Tournament Benchmark Leaderboard -->
+    <section class="card" style="margin-bottom: 2rem;">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">⚡ Machine Learning Model Comparison Tournament</h2>
+          <p class="card-subtitle">Chronological holdout set evaluation comparing MAPE and RMSE error across all models.</p>
+        </div>
+        <div class="badge badge-green" style="font-size: 0.8rem;">Production: LightGBM (+62.5% Gain)</div>
+      </div>
+
+      <div class="table-container" style="margin-bottom: 1.5rem;">
+        <table class="data-table" id="modelsTable">
+          <thead>
+            <tr>
+              <th>Model Name</th>
+              <th>Type</th>
+              <th>MAPE (%)</th>
+              <th>RMSE ($)</th>
+              <th>Baseline Improvement</th>
+              <th>Deployment Status</th>
+            </tr>
+          </thead>
+          <tbody id="modelsTableBody">
+            <!-- Dynamically populated -->
+          </tbody>
+        </table>
+      </div>
+
+      <div class="chart-container" style="height: 300px;">
+        <canvas id="modelComparisonChart"></canvas>
+      </div>
+    </section>
+
+    <!-- SECTION 3: System Access & RBAC User Directory -->
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">👥 Active User Roles & RBAC Security</h2>
+          <p class="card-subtitle">Local database-backed persistent authentication accounts.</p>
+        </div>
+      </div>
+
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Full Name</th>
+              <th>Assigned Role</th>
+              <th>Email</th>
+              <th>Access Level</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="font-weight: 700; color: #fff;">admin</td>
+              <td>System Administrator</td>
+              <td><span class="badge badge-indigo">admin</span></td>
+              <td>admin@retailanalytics.internal</td>
+              <td>Full Platform & Executive Aggregates</td>
+              <td><span class="badge badge-green">Active</span></td>
+            </tr>
+            <tr>
+              <td style="font-weight: 700; color: #fff;">manager</td>
+              <td>Store Operations Manager</td>
+              <td><span class="badge badge-cyan" style="background: rgba(6,182,212,0.15); color: #38bdf8; border: 1px solid rgba(6,182,212,0.3);">manager</span></td>
+              <td>manager@retailanalytics.internal</td>
+              <td>Store Forecasts, Reorders & Simulator</td>
+              <td><span class="badge badge-green">Active</span></td>
+            </tr>
+            <tr>
+              <td style="font-weight: 700; color: #fff;">manager1</td>
+              <td>Regional Inventory Manager</td>
+              <td><span class="badge badge-cyan" style="background: rgba(6,182,212,0.15); color: #38bdf8; border: 1px solid rgba(6,182,212,0.3);">manager</span></td>
+              <td>manager1@retailanalytics.internal</td>
+              <td>Store Forecasts, Reorders & Simulator</td>
+              <td><span class="badge badge-green">Active</span></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script>
+    const API_BASE = 'http://localhost:8000';
+    let token = localStorage.getItem('access_token');
+    let topStoresChartInstance = null;
+    let topDeptsChartInstance = null;
+    let modelChartInstance = null;
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.innerHTML = `<span>${type === 'error' ? '⚠️' : type === 'success' ? '✅' : 'ℹ️'}</span> <div>${message}</div>`;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    function checkAuth() {
+      if (!token) {
+        window.location.href = 'index.html';
+        return;
+      }
+      const role = localStorage.getItem('user_role');
+      const username = localStorage.getItem('username') || 'Admin';
+      document.getElementById('adminUsernameDisplay').innerText = `${username} (${role})`;
+
+      if (role !== 'admin') {
+        showToast('Access denied: Admin role required.', 'error');
+        setTimeout(() => { window.location.href = 'manager.html'; }, 1200);
+      }
+    }
+
+    function logout() {
+      localStorage.clear();
+      window.location.href = 'index.html';
+    }
+
+    // ==================== 1. ADMIN AGGREGATE SUMMARY ====================
+    async function loadAdminSummary() {
+      try {
+        const res = await fetch(`${API_BASE}/admin/summary`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!res.ok) {
+          if (res.status === 403 || res.status === 401) {
+            showToast('Forbidden: Admin credentials required.', 'error');
+            return;
+          }
+          throw new Error('Failed to load admin summary');
+        }
+
+        const data = await res.json();
+
+        document.getElementById('kpiChainSales').innerText = `$${(data.total_weekly_sales / 1e6).toFixed(2)}M`;
+        document.getElementById('kpiDateRange').innerText = `${data.date_range.start} to ${data.date_range.end}`;
+        document.getElementById('kpiStoresDepts').innerText = `${data.store_count} Stores / ${data.dept_count} Depts`;
+        document.getElementById('kpiHolidayLift').innerText = `+${data.holiday_lift_pct.toFixed(1)}%`;
+        document.getElementById('kpiMarkdownLift').innerText = `+${data.markdown_lift_pct.toFixed(1)}%`;
+
+        renderTopStoresChart(data.top_stores);
+        renderTopDeptsChart(data.top_depts);
+
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+
+    function renderTopStoresChart(stores) {
+      const labels = stores.map(s => `Store ${s.store_id} (Type ${s.type})`);
+      const sales = stores.map(s => s.total_sales);
+
+      const ctx = document.getElementById('topStoresChart').getContext('2d');
+      if (topStoresChartInstance) topStoresChartInstance.destroy();
+
+      topStoresChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Total Revenue ($)',
+            data: sales,
+            backgroundColor: 'rgba(99, 102, 241, 0.7)',
+            borderColor: '#6366f1',
+            borderWidth: 1,
+            borderRadius: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+            y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8', callback: v => '$' + (v/1e6).toFixed(1) + 'M' } }
+          }
+        }
+      });
+    }
+
+    function renderTopDeptsChart(depts) {
+      const labels = depts.map(d => `Dept ${d.dept_id}`);
+      const sales = depts.map(d => d.total_sales);
+
+      const ctx = document.getElementById('topDeptsChart').getContext('2d');
+      if (topDeptsChartInstance) topDeptsChartInstance.destroy();
+
+      topDeptsChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Total Revenue ($)',
+            data: sales,
+            backgroundColor: 'rgba(6, 182, 212, 0.7)',
+            borderColor: '#06b6d4',
+            borderWidth: 1,
+            borderRadius: 6
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+            y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8', callback: v => '$' + (v/1e6).toFixed(1) + 'M' } }
+          }
+        }
+      });
+    }
+
+    // ==================== 2. MODEL BENCHMARK COMPARISON ====================
+    async function loadModelComparison() {
+      try {
+        const res = await fetch(`${API_BASE}/models/comparison`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) return;
+
+        const data = await res.json();
+        const tbody = document.getElementById('modelsTableBody');
+        tbody.innerHTML = '';
+
+        const baselineMape = data.models.find(m => m.name === 'naive_seasonal')?.mape || 24.8;
+
+        data.models.forEach(model => {
+          const isProduction = model.name === data.production_model;
+          const improvement = ((baselineMape - model.mape) / baselineMape * 100).toFixed(1);
+
+          let prettyName = model.name;
+          let modelType = 'Statistical';
+          if (model.name === 'lightgbm') { prettyName = 'LightGBM Gradient Boosting'; modelType = 'Gradient Boosted Trees (ML)'; }
+          if (model.name === 'prophet') { prettyName = 'Meta Prophet'; modelType = 'Generalized Additive Model'; }
+          if (model.name === 'sarima') { prettyName = 'SARIMA'; modelType = 'AutoRegressive Seasonal'; }
+          if (model.name === 'naive_seasonal') { prettyName = 'Seasonal Naïve Baseline'; modelType = 'Heuristic Lag Baseline'; }
+
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td style="font-weight: 700; color: #fff;">${prettyName}</td>
+            <td style="color: var(--text-secondary);">${modelType}</td>
+            <td><strong style="color: ${model.mape < 15 ? '#34d399' : '#fbbf24'};">${model.mape.toFixed(1)}%</strong></td>
+            <td>$${model.rmse.toLocaleString()}</td>
+            <td><span style="color: ${improvement > 0 ? '#38bdf8' : 'var(--text-muted)'}; font-weight: 600;">${improvement > 0 ? '+' + improvement + '%' : 'Reference'}</span></td>
+            <td>${isProduction ? '<span class="badge badge-green">🚀 Active Production</span>' : '<span class="badge badge-indigo">Benchmarked</span>'}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+
+        renderModelComparisonChart(data.models);
+
+      } catch (err) {
+        console.error('Failed loading model comparisons:', err);
+      }
+    }
+
+    function renderModelComparisonChart(models) {
+      const labels = models.map(m => m.name.toUpperCase().replace('_', ' '));
+      const mapeVals = models.map(m => m.mape);
+      const rmseVals = models.map(m => m.rmse);
+
+      const ctx = document.getElementById('modelComparisonChart').getContext('2d');
+      if (modelChartInstance) modelChartInstance.destroy();
+
+      modelChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'MAPE Error % (Lower is Better)',
+              data: mapeVals,
+              backgroundColor: 'rgba(244, 63, 94, 0.6)',
+              borderColor: '#f43f5e',
+              borderWidth: 1,
+              borderRadius: 6,
+              yAxisID: 'y'
+            },
+            {
+              label: 'RMSE Error $ (Lower is Better)',
+              data: rmseVals,
+              backgroundColor: 'rgba(99, 102, 241, 0.6)',
+              borderColor: '#6366f1',
+              borderWidth: 1,
+              borderRadius: 6,
+              yAxisID: 'y1'
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+            y: {
+              type: 'linear',
+              position: 'left',
+              grid: { color: 'rgba(255,255,255,0.05)' },
+              ticks: { color: '#fb7185', callback: v => v + '%' }
+            },
+            y1: {
+              type: 'linear',
+              position: 'right',
+              grid: { drawOnChartArea: false },
+              ticks: { color: '#818cf8', callback: v => '$' + v.toLocaleString() }
+            }
+          }
+        }
+      });
+    }
+
+    // Auto-init on load
+    window.addEventListener('DOMContentLoaded', () => {
+      checkAuth();
+      loadAdminSummary();
+      loadModelComparison();
+    });
+  </script>
 </body>
 </html>

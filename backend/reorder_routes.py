@@ -50,11 +50,10 @@ def get_reorder_alerts(
     This endpoint retrieves reorder recommendations and stockout thresholds for a specific store.
     It takes an optional 'urgency' query parameter (to filter departments showing Red/Amber status)
     and an 'as_of_date' (to simulate current calendar dates relative to holdout predictions date).
-    
-    If the underlying dataset doesn't contain prediction records for this store, we catch it
-    and return an empty response format rather than crashing. All calculations are delegated
-    to src.reorder_logic.
+    Enforces store-level isolation for store managers.
     """
+    auth.enforce_store_access(store_id, current_user)
+
     if urgency and urgency.lower() not in ["red", "amber", "green"]:
         raise HTTPException(
             status_code=400,
@@ -103,11 +102,10 @@ def post_whatif_scenario(
     EXPLANATION FOR THE JUDGING PANEL:
     The What-If endpoint receives promotional parameters and overrides, running mock
     sales calculations across date ranges. It compares baseline sales against adjusted lifts
-    resulting from markdown budgets.
-    
-    Route parameters are validated via the Pydantic class 'WhatIfRequest'.
-    The actual mathematical lifts are calculated inside src.reorder_logic.
+    resulting from markdown budgets. Enforces store-level isolation.
     """
+    auth.enforce_store_access(payload.store_id, current_user)
+
     if model.lower() not in ["lightgbm", "baseline"]:
         raise HTTPException(
             status_code=400,

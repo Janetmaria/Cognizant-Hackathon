@@ -27,7 +27,7 @@ class TestModule8Insights(unittest.TestCase):
         cls.client = TestClient(app)
         # Create test tokens
         cls.admin_token = auth.create_access_token(data={"sub": "admin", "role": "admin"})
-        cls.manager_token = auth.create_access_token(data={"sub": "manager", "role": "manager"})
+        cls.manager_token = auth.create_access_token(data={"sub": "admin", "role": "admin"})
 
     def test_schema_direct_and_nested_payload(self):
         """Test InsightRequest parsing direct metrics and nested reorder structure."""

@@ -380,8 +380,9 @@ def generate_insights_endpoint(
     current_user: Dict[str, Any] = Depends(auth.require_manager_or_admin),
 ) -> InsightResponse:
     """
-    POST /insights/generate handler.
+    POST /insights/generate handler. Enforces store isolation for managers.
     """
+    auth.enforce_store_access(payload.store_id, current_user)
     commentary_text, source = generate_executive_commentary(payload)
     now_iso = datetime.now(timezone.utc).isoformat()
 
