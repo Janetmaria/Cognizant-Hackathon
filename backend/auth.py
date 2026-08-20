@@ -84,6 +84,7 @@ def _user_to_dict(user: database.User) -> Dict[str, Any]:
         "username": user.username,
         "hashed_password": user.hashed_password,
         "role": user.role,
+        "assigned_store": getattr(user, "assigned_store", None),
         "full_name": user.full_name,
         "email": user.email,
         "disabled": user.disabled,
@@ -174,12 +175,14 @@ class Token(BaseModel):
     access_token: str = Field(..., description="Signed HS256 JWT access token")
     token_type: str = Field("bearer", description="Token type prefix (bearer)")
     role: str = Field(..., description="User role ('admin' or 'manager')")
+    assigned_store: Optional[str] = Field(None, description="Assigned store identifier for store manager (e.g. '4')")
     expires_in: int = Field(ACCESS_TOKEN_EXPIRE_SECONDS, description="Token lifetime in seconds (8 hours)")
 
 
 class TokenData(BaseModel):
     username: Optional[str] = None
     role: Optional[str] = None
+    assigned_store: Optional[str] = None
 
 
 class UserAuth(BaseModel):
@@ -190,6 +193,7 @@ class UserAuth(BaseModel):
 class UserOut(BaseModel):
     username: str
     role: str
+    assigned_store: Optional[str] = None
     full_name: Optional[str] = None
     email: Optional[str] = None
     disabled: bool = False
@@ -263,6 +267,29 @@ def require_role(allowed_roles: List[str]) -> Callable:
     return role_checker
 
 
+def enforce_store_access(store_id: str, current_user: Dict[str, Any]) -> None:
+    """
+    Enforces that store managers can only view/query their assigned store.
+    Admin users can access all stores without restriction.
+    """
+    user_role = current_user.get("role", "").lower()
+    if user_role == "admin":
+        return  # Admins have unrestricted chain-wide access across all stores
+
+    assigned_store = current_user.get("assigned_store")
+    # Only restrict if an explicit assigned_store is set on the manager account
+    if assigned_store and str(assigned_store).strip():
+        if str(assigned_store).strip() != str(store_id).strip():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "error": True,
+                    "message": f"Access forbidden: You are assigned to Store {assigned_store} and cannot access data for Store {store_id}.",
+                    "status_code": 403,
+                },
+            )
+
+
 require_admin = require_role(["admin"])
 require_manager_or_admin = require_role(["manager", "admin"])
 
@@ -293,11 +320,16 @@ def login_json(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    access_token = create_access_token(data={"sub": user["username"], "role": user["role"]})
+    access_token = create_access_token(data={
+        "sub": user["username"],
+        "role": user["role"],
+        "assigned_store": user.get("assigned_store"),
+    })
     return Token(
         access_token=access_token,
         token_type="bearer",
         role=user["role"],
+        assigned_store=user.get("assigned_store"),
         expires_in=ACCESS_TOKEN_EXPIRE_SECONDS,
     )
 
@@ -320,11 +352,16 @@ def login_oauth2_form(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    access_token = create_access_token(data={"sub": user["username"], "role": user["role"]})
+    access_token = create_access_token(data={
+        "sub": user["username"],
+        "role": user["role"],
+        "assigned_store": user.get("assigned_store"),
+    })
     return Token(
         access_token=access_token,
         token_type="bearer",
         role=user["role"],
+        assigned_store=user.get("assigned_store"),
         expires_in=ACCESS_TOKEN_EXPIRE_SECONDS,
     )
 
@@ -339,6 +376,7 @@ def get_me(current_user: Dict[str, Any] = Depends(get_current_user)) -> UserOut:
     return UserOut(
         username=current_user["username"],
         role=current_user["role"],
+        assigned_store=current_user.get("assigned_store"),
         full_name=current_user.get("full_name"),
         email=current_user.get("email"),
         disabled=current_user.get("disabled", False),

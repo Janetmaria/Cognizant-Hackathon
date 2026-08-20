@@ -10,3 +10,5 @@ data/raw/*
 *.pkl
 *.joblib
 .env
+*.db
+data/*.db

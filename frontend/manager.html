@@ -1,12 +1,594 @@
-<!-- Store manager view. -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Manager | Retail Sales Forecasting Platform</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Store Manager Dashboard | RetailPulse AI</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22><text y=%2226%22 font-size=%2226%22>🏬</text></svg>">
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-  <!-- TODO: manager view UI -->
+
+  <!-- Navigation Bar -->
+  <header class="navbar">
+    <a href="index.html" class="nav-brand">
+      <div class="brand-icon">🏬</div>
+      <div class="brand-text">
+        <h1>Store Manager Intelligence</h1>
+        <span id="userRoleBadge">Manager Mode</span>
+      </div>
+    </a>
+    <div class="nav-actions">
+      <div class="nav-badge">
+        <span class="status-dot"></span>
+        <span id="userNameDisplay">Store 4 Manager</span>
+      </div>
+      <a href="admin.html" id="adminLinkBtn" class="btn btn-secondary btn-sm" style="display: none;">Admin Hub</a>
+      <button class="btn btn-secondary btn-sm" onclick="logout()">Logout</button>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <!-- Executive AI Commentary Box -->
+    <section class="commentary-card" id="aiCommentaryCard">
+      <div class="commentary-header">
+        <div style="display: flex; align-items: center; gap: 0.6rem;">
+          <div class="ai-badge">✨ Executive AI Commentary</div>
+          <span style="font-size: 0.75rem; color: #a5b4fc;" id="aiSourceIndicator">Powered by LLM / Rule Engine</span>
+        </div>
+        <button class="btn btn-cyan btn-sm" onclick="refreshAICommentary()" id="refreshCommentaryBtn">
+          <span>⚡ Re-Analyze Store</span>
+        </button>
+      </div>
+      <div class="commentary-body" id="aiCommentaryText">
+        Analyzing department sales trends, supply chain vulnerabilities, and working capital opportunities for Store <span id="currentStoreDisplay">4</span>...
+      </div>
+    </section>
+
+    <!-- Store Level KPI Overview -->
+    <section class="kpi-grid">
+      <div class="kpi-card">
+        <div class="kpi-icon indigo">💰</div>
+        <div class="kpi-content">
+          <div class="kpi-label">Projected Store Revenue</div>
+          <div class="kpi-value" id="kpiTotalRevenue">$0.00</div>
+          <div class="kpi-subtext">Selected forecast window</div>
+        </div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon rose">⚠️</div>
+        <div class="kpi-content">
+          <div class="kpi-label">Red Stockout Alerts</div>
+          <div class="kpi-value" id="kpiRedAlerts">0 Depts</div>
+          <div class="kpi-subtext">&lt; 1 week to stockout</div>
+        </div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon amber">⏳</div>
+        <div class="kpi-content">
+          <div class="kpi-label">Amber Warnings</div>
+          <div class="kpi-value" id="kpiAmberAlerts">0 Depts</div>
+          <div class="kpi-subtext">1 - 2 weeks buffer remaining</div>
+        </div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-icon emerald">💵</div>
+        <div class="kpi-content">
+          <div class="kpi-label">Capital Freed Estimate</div>
+          <div class="kpi-value" id="kpiCapitalFreed">$0.00</div>
+          <div class="kpi-subtext">Working capital optimization</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 1: Sales Demand Forecaster -->
+    <section class="card" style="margin-bottom: 2rem;">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">📈 Department Sales Demand Forecaster</h2>
+          <p class="card-subtitle">Generate calibrated machine learning weekly projections across store departments.</p>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="filter-bar">
+        <div class="form-group">
+          <label class="form-label" id="storeInputLabel">Store ID</label>
+          <input type="text" id="forecastStoreInput" class="form-control" value="4" readonly style="background: rgba(30, 41, 59, 0.6); cursor: not-allowed;">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Department ID</label>
+          <input type="text" id="forecastDeptInput" class="form-control" value="92">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Start Date (Fri)</label>
+          <input type="date" id="forecastStartDate" class="form-control" value="2026-08-21">
+        </div>
+        <div class="form-group">
+          <label class="form-label">End Date (Fri)</label>
+          <input type="date" id="forecastEndDate" class="form-control" value="2026-09-25">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Forecasting Model</label>
+          <select id="forecastModelSelect" class="form-control">
+            <option value="lightgbm" selected>LightGBM (Production - 9.3% MAPE)</option>
+            <option value="baseline">Seasonal Naïve Baseline</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="loadForecastData()" id="fetchForecastBtn">
+          Run Forecast
+        </button>
+      </div>
+
+      <!-- Chart Container -->
+      <div class="chart-container" style="height: 380px;">
+        <canvas id="forecastChart"></canvas>
+      </div>
+    </section>
+
+    <!-- SECTION 2: Inventory Intelligence & Stockout Alerts -->
+    <section class="card" style="margin-bottom: 2rem;">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">📦 Inventory Intelligence & Reorder Recommendations</h2>
+          <p class="card-subtitle">Real-time stockout tracking, lead-time safety buffers, and recommended replenishment units.</p>
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+          <button class="btn btn-secondary btn-sm" onclick="filterReorderTable('all')">All Depts</button>
+          <button class="btn btn-danger btn-sm" onclick="filterReorderTable('red')">🚨 Red Alerts</button>
+          <button class="btn btn-secondary btn-sm" onclick="filterReorderTable('amber')" style="color: #fbbf24; border-color: rgba(245,158,11,0.4)">Amber Warnings</button>
+        </div>
+      </div>
+
+      <div class="table-container">
+        <table class="data-table" id="reorderTable">
+          <thead>
+            <tr>
+              <th>Dept ID</th>
+              <th>Current Stock (Units)</th>
+              <th>Weekly Demand</th>
+              <th>Weeks to Stockout</th>
+              <th>Urgency Status</th>
+              <th>Recommended Reorder</th>
+              <th>Capital Freed ($)</th>
+            </tr>
+          </thead>
+          <tbody id="reorderTableBody">
+            <tr>
+              <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">Loading inventory intelligence...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- SECTION 3: Promotional What-If Scenario Simulator -->
+    <section class="card">
+      <div class="card-header">
+        <div>
+          <h2 class="card-title">🔮 Promotional Markdown "What-If" Simulator</h2>
+          <p class="card-subtitle">Simulate promotional spend impact on sales demand and measure projected lift percentage.</p>
+        </div>
+      </div>
+
+      <div class="sim-panel">
+        <div style="display: flex; flex-direction: column; gap: 1.25rem;">
+          <div class="form-group">
+            <div style="display: flex; justify-content: space-between;">
+              <label class="form-label">Promotional Markdown Budget ($)</label>
+              <span id="sliderValueText" style="font-weight: 700; color: var(--accent-cyan);">$5,000</span>
+            </div>
+            <input type="range" id="markdownSlider" class="range-slider" min="0" max="50000" step="500" value="5000" oninput="updateMarkdownVal(this.value)">
+          </div>
+
+          <div style="display: flex; gap: 1rem; align-items: center;">
+            <label class="form-label" style="margin: 0; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+              <input type="checkbox" id="holidayOverrideToggle" style="accent-color: var(--accent-cyan); transform: scale(1.2);">
+              <span>Force Holiday Spike Override (Simulate Holiday Week)</span>
+            </label>
+          </div>
+
+          <button class="btn btn-cyan" onclick="runWhatIfSimulation()" id="simulateBtn">
+            <span>⚡ Run Promotional Simulation</span>
+          </button>
+        </div>
+
+        <div class="lift-metric-box">
+          <div style="font-size: 0.85rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 600;">Projected Promotional Lift</div>
+          <div class="lift-val" id="projectedLiftVal">+0.0%</div>
+          <div style="font-size: 0.85rem; color: var(--text-muted);" id="liftDollarComparison">Baseline $0.00 vs Adjusted $0.00</div>
+        </div>
+      </div>
+
+      <div class="chart-container" style="height: 320px; margin-top: 1.5rem;">
+        <canvas id="whatIfChart"></canvas>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <script>
+    const API_BASE = 'http://localhost:8000';
+    let token = localStorage.getItem('access_token');
+    let forecastChartInstance = null;
+    let whatIfChartInstance = null;
+    let cachedAlerts = [];
+
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type}`;
+      toast.innerHTML = `<span>${type === 'error' ? '⚠️' : type === 'success' ? '✅' : 'ℹ️'}</span> <div>${message}</div>`;
+      container.appendChild(toast);
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+      }, 3500);
+    }
+
+    function checkAuth() {
+      if (!token) {
+        window.location.href = 'index.html';
+        return;
+      }
+      const role = localStorage.getItem('user_role');
+      const username = localStorage.getItem('username') || 'Store Manager';
+      const assignedStore = localStorage.getItem('assigned_store') || '4';
+
+      document.getElementById('userNameDisplay').innerText = `${username} (${role})`;
+      
+      if (role === 'admin') {
+        document.getElementById('adminLinkBtn').style.display = 'inline-flex';
+        // Admins can change store freely
+        const storeInput = document.getElementById('forecastStoreInput');
+        storeInput.readOnly = false;
+        storeInput.style.background = 'rgba(15, 23, 42, 0.8)';
+        storeInput.style.cursor = 'text';
+      } else {
+        // Managers are strictly locked to their assigned store
+        document.getElementById('forecastStoreInput').value = assignedStore;
+        document.getElementById('currentStoreDisplay').innerText = assignedStore;
+        document.getElementById('userRoleBadge').innerText = `Store ${assignedStore} Manager`;
+      }
+    }
+
+    function logout() {
+      localStorage.clear();
+      window.location.href = 'index.html';
+    }
+
+    // ==================== 1. FORECASTING ====================
+    async function loadForecastData() {
+      const storeId = document.getElementById('forecastStoreInput').value.trim();
+      const deptId = document.getElementById('forecastDeptInput').value.trim();
+      const startDate = document.getElementById('forecastStartDate').value;
+      const endDate = document.getElementById('forecastEndDate').value;
+      const model = document.getElementById('forecastModelSelect').value;
+
+      document.getElementById('currentStoreDisplay').innerText = storeId;
+      const btn = document.getElementById('fetchForecastBtn');
+      btn.innerText = 'Calculating...';
+      btn.disabled = true;
+
+      try {
+        const url = `${API_BASE}/forecast/${storeId}?dept_id=${deptId}&start_date=${startDate}&end_date=${endDate}&model=${model}`;
+        const res = await fetch(url, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (!res.ok) {
+          if (res.status === 401) { logout(); return; }
+          const errData = await res.json();
+          throw new Error(errData.message || (errData.detail && errData.detail.message) || 'Forecast fetch failed');
+        }
+
+        const data = await res.json();
+        renderForecastChart(data.predictions);
+        showToast(`Forecast loaded for Store ${storeId}, Dept ${deptId}`, 'success');
+
+        // Trigger AI Commentary & Reorders
+        loadReorderAlerts(storeId);
+
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        btn.innerText = 'Run Forecast';
+        btn.disabled = false;
+      }
+    }
+
+    function renderForecastChart(predictions) {
+      const labels = predictions.map(p => p.week_ending_date);
+      const predictedValues = predictions.map(p => p.predicted_weekly_sales);
+      const actualValues = predictions.map(p => p.actual_weekly_sales > 0 ? p.actual_weekly_sales : null);
+
+      const totalRevenue = predictedValues.reduce((a, b) => a + b, 0);
+      document.getElementById('kpiTotalRevenue').innerText = `$${totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+      const ctx = document.getElementById('forecastChart').getContext('2d');
+      if (forecastChartInstance) forecastChartInstance.destroy();
+
+      forecastChartInstance = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Predicted Weekly Sales ($)',
+              data: predictedValues,
+              borderColor: '#6366f1',
+              backgroundColor: 'rgba(99, 102, 241, 0.15)',
+              borderWidth: 3,
+              fill: true,
+              tension: 0.3,
+              pointBackgroundColor: '#818cf8',
+              pointRadius: 4
+            },
+            {
+              label: 'Historical / Actual Sales ($)',
+              data: actualValues,
+              borderColor: '#06b6d4',
+              borderWidth: 2,
+              borderDash: [5, 5],
+              fill: false,
+              pointBackgroundColor: '#06b6d4',
+              pointRadius: 4
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { labels: { color: '#cbd5e1', font: { family: 'Inter' } } },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => `${ctx.dataset.label}: $${Number(ctx.raw).toLocaleString()}`
+              }
+            }
+          },
+          scales: {
+            x: {
+              grid: { color: 'rgba(255,255,255,0.05)' },
+              ticks: { color: '#94a3b8', font: { family: 'Inter' } }
+            },
+            y: {
+              grid: { color: 'rgba(255,255,255,0.05)' },
+              ticks: {
+                color: '#94a3b8',
+                font: { family: 'Inter' },
+                callback: (val) => '$' + val.toLocaleString()
+              }
+            }
+          }
+        }
+      });
+    }
+
+    // ==================== 2. REORDER ALERTS ====================
+    async function loadReorderAlerts(storeId) {
+      try {
+        const res = await fetch(`${API_BASE}/reorder/${storeId}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!res.ok) return;
+
+        const data = await res.json();
+        cachedAlerts = data.alerts || [];
+
+        let redCount = 0;
+        let amberCount = 0;
+        cachedAlerts.forEach(a => {
+          if (a.urgency === 'red') redCount++;
+          if (a.urgency === 'amber') amberCount++;
+        });
+
+        document.getElementById('kpiRedAlerts').innerText = `${redCount} Depts`;
+        document.getElementById('kpiAmberAlerts').innerText = `${amberCount} Depts`;
+
+        const totalFreed = data.summary?.total_capital_freed_estimate || 0;
+        document.getElementById('kpiCapitalFreed').innerText = `$${Number(totalFreed).toLocaleString('en-US', { minimumFractionDigits: 2 })}`;
+
+        renderReorderTable(cachedAlerts);
+
+        // Fetch commentary automatically
+        fetchCommentaryPayload(storeId, cachedAlerts, data.summary);
+
+      } catch (e) {
+        console.error('Failed fetching reorder alerts:', e);
+      }
+    }
+
+    function renderReorderTable(alerts) {
+      const tbody = document.getElementById('reorderTableBody');
+      tbody.innerHTML = '';
+
+      if (!alerts || alerts.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">No stockout alerts flagged for this store! All departments healthy.</td></tr>';
+        return;
+      }
+
+      alerts.forEach(item => {
+        const tr = document.createElement('tr');
+        const badgeClass = item.urgency === 'red' ? 'badge-red' : item.urgency === 'amber' ? 'badge-amber' : 'badge-green';
+        const icon = item.urgency === 'red' ? '🚨' : item.urgency === 'amber' ? '⏳' : '✅';
+
+        tr.innerHTML = `
+          <td style="font-weight: 700; color: #fff;">Dept ${item.dept_id}</td>
+          <td>${item.current_stock_units.toLocaleString()}</td>
+          <td>${item.predicted_weekly_demand_units.toLocaleString()} units/wk</td>
+          <td><strong style="color: ${item.weeks_to_stockout <= 1 ? '#fb7185' : '#fde68a'}">${item.weeks_to_stockout} wks</strong></td>
+          <td><span class="badge ${badgeClass}">${icon} ${item.urgency.toUpperCase()}</span></td>
+          <td><strong style="color: #38bdf8;">+${item.recommended_reorder_units.toLocaleString()} units</strong></td>
+          <td>$${item.capital_freed_estimate ? Number(item.capital_freed_estimate).toLocaleString() : '0.00'}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function filterReorderTable(urgency) {
+      if (urgency === 'all') {
+        renderReorderTable(cachedAlerts);
+      } else {
+        renderReorderTable(cachedAlerts.filter(a => a.urgency === urgency));
+      }
+    }
+
+    // ==================== 3. AI COMMENTARY ====================
+    async function fetchCommentaryPayload(storeId, alerts, summary) {
+      const commentaryBox = document.getElementById('aiCommentaryText');
+      try {
+        const payload = {
+          store_id: String(storeId),
+          alerts: alerts,
+          summary: summary || {
+            total_depts_at_risk: alerts.length,
+            total_capital_freed_estimate: 0
+          }
+        };
+
+        const res = await fetch(`${API_BASE}/insights`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          commentaryBox.innerText = data.insight_text || data.commentary;
+          document.getElementById('aiSourceIndicator').innerText = data.generated_by === 'llm' ? '⚡ Generated via Live LLM' : '🛡️ Generated via Executive Rule Engine';
+        }
+      } catch (err) {
+        console.error('Commentary error:', err);
+      }
+    }
+
+    function refreshAICommentary() {
+      const storeId = document.getElementById('forecastStoreInput').value.trim();
+      loadReorderAlerts(storeId);
+      showToast('Re-analyzed executive inventory commentary', 'info');
+    }
+
+    // ==================== 4. WHAT-IF SIMULATOR ====================
+    function updateMarkdownVal(val) {
+      document.getElementById('sliderValueText').innerText = `$${Number(val).toLocaleString()}`;
+    }
+
+    async function runWhatIfSimulation() {
+      const storeId = document.getElementById('forecastStoreInput').value.trim();
+      const deptId = document.getElementById('forecastDeptInput').value.trim();
+      const startDate = document.getElementById('forecastStartDate').value;
+      const endDate = document.getElementById('forecastEndDate').value;
+      const markdownAmount = parseFloat(document.getElementById('markdownSlider').value);
+      const isHolidayOverride = document.getElementById('holidayOverrideToggle').checked;
+
+      const btn = document.getElementById('simulateBtn');
+      btn.innerText = 'Simulating Lift...';
+      btn.disabled = true;
+
+      try {
+        const payload = {
+          store_id: storeId,
+          dept_id: deptId,
+          start_date: startDate,
+          end_date: endDate,
+          markdown_amount: markdownAmount,
+          is_holiday_override: isHolidayOverride ? true : null
+        };
+
+        const res = await fetch(`${API_BASE}/whatif`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.message || 'Simulation failed');
+        }
+
+        const data = await res.json();
+        renderWhatIfChart(data);
+        showToast(`Simulation complete: +${data.projected_lift_pct}% projected lift!`, 'success');
+
+      } catch (err) {
+        showToast(err.message, 'error');
+      } finally {
+        btn.innerText = '⚡ Run Promotional Simulation';
+        btn.disabled = false;
+      }
+    }
+
+    function renderWhatIfChart(data) {
+      const lift = data.projected_lift_pct || 0;
+      document.getElementById('projectedLiftVal').innerText = `+${lift.toFixed(1)}%`;
+
+      const labels = data.baseline_predictions.map(p => p.week_ending_date);
+      const baselineSales = data.baseline_predictions.map(p => p.predicted_weekly_sales);
+      const adjustedSales = data.adjusted_predictions.map(p => p.predicted_weekly_sales);
+
+      const baseSum = baselineSales.reduce((a, b) => a + b, 0);
+      const adjSum = adjustedSales.reduce((a, b) => a + b, 0);
+      document.getElementById('liftDollarComparison').innerText = `Baseline: $${baseSum.toLocaleString(undefined, {maximumFractionDigits:0})} → Projected: $${adjSum.toLocaleString(undefined, {maximumFractionDigits:0})} (+$${(adjSum - baseSum).toLocaleString(undefined, {maximumFractionDigits:0})})`;
+
+      const ctx = document.getElementById('whatIfChart').getContext('2d');
+      if (whatIfChartInstance) whatIfChartInstance.destroy();
+
+      whatIfChartInstance = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'Standard Baseline Sales ($)',
+              data: baselineSales,
+              backgroundColor: 'rgba(99, 102, 241, 0.5)',
+              borderColor: '#6366f1',
+              borderWidth: 1,
+              borderRadius: 6
+            },
+            {
+              label: 'With Markdown Promotion ($)',
+              data: adjustedSales,
+              backgroundColor: 'rgba(6, 182, 212, 0.7)',
+              borderColor: '#06b6d4',
+              borderWidth: 1,
+              borderRadius: 6
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { labels: { color: '#cbd5e1' } }
+          },
+          scales: {
+            x: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8' } },
+            y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#94a3b8', callback: v => '$' + v.toLocaleString() } }
+          }
+        }
+      });
+    }
+
+    // Auto-init on load
+    window.addEventListener('DOMContentLoaded', () => {
+      checkAuth();
+      loadForecastData();
+      runWhatIfSimulation();
+    });
+  </script>
 </body>
 </html>

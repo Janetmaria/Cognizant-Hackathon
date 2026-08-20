@@ -41,6 +41,7 @@ class User(Base):
     username = Column(String(50), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     role = Column(String(20), default="manager", nullable=False)
+    assigned_store = Column(String(10), nullable=True)  # e.g., '4' or None for admin
     full_name = Column(String(100), nullable=True)
     email = Column(String(120), nullable=True)
     disabled = Column(Boolean, default=False, nullable=False)
@@ -51,6 +52,7 @@ class SeedUser(TypedDict):
     username: str
     password: str
     role: str
+    assigned_store: str
     full_name: str
     email: str
 
@@ -60,6 +62,7 @@ DEFAULT_SEED_USERS: List[SeedUser] = [
         "username": "admin",
         "password": "admin123",
         "role": "admin",
+        "assigned_store": "",
         "full_name": "System Administrator",
         "email": "admin@retailanalytics.internal",
     },
@@ -67,14 +70,16 @@ DEFAULT_SEED_USERS: List[SeedUser] = [
         "username": "manager",
         "password": "manager123",
         "role": "manager",
-        "full_name": "Store Operations Manager",
+        "assigned_store": "1",
+        "full_name": "Store 1 Operations Manager",
         "email": "manager@retailanalytics.internal",
     },
     {
         "username": "manager1",
         "password": "manager123",
         "role": "manager",
-        "full_name": "Regional Inventory Manager",
+        "assigned_store": "4",
+        "full_name": "Store 4 Inventory Manager",
         "email": "manager1@retailanalytics.internal",
     },
 ]
@@ -106,6 +111,9 @@ def init_db() -> None:
                 .first()
             )
             if existing is not None:
+                if seed["assigned_store"] and not existing.assigned_store:
+                    existing.assigned_store = seed["assigned_store"]
+                    db.commit()
                 continue
 
             db.add(
@@ -113,6 +121,7 @@ def init_db() -> None:
                     username=seed["username"],
                     hashed_password=_hash_password(seed["password"]),
                     role=seed["role"],
+                    assigned_store=seed["assigned_store"] or None,
                     full_name=seed["full_name"],
                     email=seed["email"],
                     disabled=False,
