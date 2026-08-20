@@ -14,6 +14,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # Load .env file automatically (supports GROQ_API_KEY, OPENAI_API_KEY, JWT_SECRET_KEY, etc.)
@@ -110,8 +111,8 @@ except (ImportError, AttributeError):
         PREDICTIONS_PATH = Path("data/processed/lightgbm_predictions.csv")
 
 
-@app.get("/")
-def get_root():
+@app.get("/health")
+def get_health():
     return {
         "status": "healthy",
         "service": "Retail Sales Forecasting API",
@@ -320,4 +321,13 @@ def get_admin_summary(
                 "status_code": 500,
             }
         )
+
+
+# Serve the frontend static pages. Mounted last so it never shadows an API
+# route or /docs — StaticFiles only receives requests no earlier route matched.
+app.mount(
+    "/",
+    StaticFiles(directory=Path(__file__).resolve().parent.parent / "frontend", html=True),
+    name="frontend",
+)
 
