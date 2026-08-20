@@ -99,9 +99,13 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 try:
     import config
-    PREDICTIONS_PATH = config.PROCESSED_DIR / "lightgbm_predictions.csv"
+    PREDICTIONS_PATH = config.PROCESSED_DIR / "hybrid_predictions.csv"
+    if not PREDICTIONS_PATH.exists():
+        PREDICTIONS_PATH = config.PROCESSED_DIR / "lightgbm_predictions.csv"
 except (ImportError, AttributeError):
-    PREDICTIONS_PATH = Path("data/processed/lightgbm_predictions.csv")
+    PREDICTIONS_PATH = Path("data/processed/hybrid_predictions.csv")
+    if not PREDICTIONS_PATH.exists():
+        PREDICTIONS_PATH = Path("data/processed/lightgbm_predictions.csv")
 
 
 @app.get("/")
@@ -177,9 +181,9 @@ def get_forecast(
             display_date = reorder_logic.map_date_forward(raw_date)
 
             if model.lower() == "baseline":
-                predicted_val = float(row.get("baseline_pred", 0.0))
+                predicted_val = float(row.get("stat_prediction", row.get("baseline_pred", 0.0)))
             else:
-                predicted_val = float(row.get("lgbm_pred", row.get("baseline_pred", 0.0)))
+                predicted_val = float(row.get("prediction", row.get("lgbm_pred", row.get("stat_prediction", row.get("baseline_pred", 0.0)))))
 
             predicted_val = max(0.0, predicted_val)
             actual_val = float(row.get("weekly_sales", 0.0))
