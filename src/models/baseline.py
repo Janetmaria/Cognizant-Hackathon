@@ -1,14 +1,6 @@
-"""
-Module 5 - Baseline forecasting model (Seasonal Naïve / Last-observed Naïve).
-
-Owner: Module 5.
-Reads standardized data via config.PROCESSED_TRAIN_CSV / PROCESSED_HOLDOUT_CSV,
-predicts config.TARGET_COL. Compared against other models via src/evaluate.py.
-"""
-
 import sys
 from pathlib import Path
-from typing import Optional, Dict
+from typing import Tuple, Dict, Optional
 
 import numpy as np
 import pandas as pd
@@ -18,157 +10,134 @@ import config
 from src.evaluate import evaluate_predictions, print_evaluation_report
 
 
+def predict_seasonal_naive(
+    train_df: pd.DataFrame,
+    holdout_df: pd.DataFrame,
+    seasonal_weeks: int = 52,
+) -> pd.DataFrame:
+    """
+    Generate Seasonal-Naive baseline forecast for weekly sales.
+
+    Rule:
+    Forecast for time t = Actual sales from time (t - 52 weeks) [same week last year].
+    Fallback 1: Match by (store_id, dept_id, week_of_year) in train_df.
+    Fallback 2: Last known sales value (weekly_sales_lag_1).
+    Fallback 3: Overall mean sales for the store-dept series.
+    """
+    result_df = holdout_df.copy()
+
+    # Ensure date is datetime
+    train_copy = train_df.copy()
+    train_copy["date_dt"] = pd.to_datetime(train_copy["date"])
+    result_df["date_dt"] = pd.to_datetime(result_df["date"])
+
+    # Method 1: Exact 52-week offset match (364 days)
+    result_df["target_lookup_date"] = result_df["date_dt"] - pd.Timedelta(days=7 * seasonal_weeks)
+
+    lookup = train_copy[["store_id", "dept_id", "date_dt", config.TARGET_COL]].rename(
+        columns={"date_dt": "target_lookup_date", config.TARGET_COL: "naive_pred_52w"}
+    )
+
+    merged = result_df.merge(lookup, on=["store_id", "dept_id", "target_lookup_date"], how="left")
+    predictions = merged["naive_pred_52w"].copy()
+
+    # Method 2 Fallback: Match by week_of_year in train_df
+    if "week_of_year" in train_copy.columns and "week_of_year" in result_df.columns:
+        woy_lookup = train_copy.groupby(["store_id", "dept_id", "week_of_year"])[config.TARGET_COL].mean().reset_index()
+        woy_lookup = woy_lookup.rename(columns={config.TARGET_COL: "naive_pred_woy"})
+        merged_woy = result_df.merge(woy_lookup, on=["store_id", "dept_id", "week_of_year"], how="left")
+        predictions = predictions.fillna(merged_woy["naive_pred_woy"])
+
+    # Method 3 Fallback: Use lag_1 if available
+    if "weekly_sales_lag_1" in result_df.columns:
+        predictions = predictions.fillna(result_df["weekly_sales_lag_1"])
+
+    # Method 4 Fallback: Store-Dept overall mean from train
+    store_dept_means = train_copy.groupby(["store_id", "dept_id"])[config.TARGET_COL].mean()
+    fallback_series = result_df.set_index(["store_id", "dept_id"]).index.map(store_dept_means)
+    predictions = predictions.fillna(pd.Series(fallback_series, index=result_df.index))
+
+    # Final global mean fallback if needed
+    global_mean = train_copy[config.TARGET_COL].mean() if len(train_copy) > 0 else 0.0
+    predictions = predictions.fillna(global_mean)
+
+    result_df["prediction"] = predictions.values
+
+    # Clean temporary helper columns
+    drop_cols = ["date_dt", "target_lookup_date"]
+    result_df = result_df.drop(columns=[c for c in drop_cols if c in result_df.columns])
+
+    return result_df
+
+
 class SeasonalNaiveBaseline:
     """
-    Seasonal Naïve Baseline Model.
-    
-    Prediction strategy:
-    1. Primary: Historical mean for the same (store_id, dept_id, week_of_year) in training data.
-    2. Fallback 1: Previous week's sales (weekly_sales_lag_1).
-    3. Fallback 2: Store-Department average sales.
-    4. Fallback 3: Global average weekly sales.
+    Class wrapper around predict_seasonal_naive(), matching the .fit(train_df) /
+    .predict(holdout_df) -> array interface that sarima_model.py and prophet_model.py
+    expect for benchmarking against the seasonal-naive baseline.
     """
 
-    def __init__(self):
-        self.seasonal_lookup: Dict = {}
-        self.store_dept_lookup: Dict = {}
-        self.global_mean: float = 0.0
+    def __init__(self, seasonal_weeks: int = 52):
+        self.seasonal_weeks = seasonal_weeks
+        self.train_df: Optional[pd.DataFrame] = None
 
     def fit(self, train_df: pd.DataFrame) -> "SeasonalNaiveBaseline":
-        """
-        Fit the baseline lookup tables on training data.
-        """
-        df = train_df.copy()
-        
-        # Ensure week_of_year column exists
-        if "week_of_year" not in df.columns:
-            if "date" in df.columns:
-                dates = pd.to_datetime(df["date"])
-                df["week_of_year"] = dates.dt.isocalendar().week.astype(int)
-            else:
-                raise ValueError("Training data must contain 'week_of_year' or 'date' column.")
-
-        # 1. Seasonal lookup: (store_id, dept_id, week_of_year) -> mean sales
-        seasonal_group = df.groupby(["store_id", "dept_id", "week_of_year"])[config.TARGET_COL].mean()
-        self.seasonal_lookup = seasonal_group.to_dict()
-
-        # 2. Store-Dept lookup: (store_id, dept_id) -> mean sales
-        store_dept_group = df.groupby(["store_id", "dept_id"])[config.TARGET_COL].mean()
-        self.store_dept_lookup = store_dept_group.to_dict()
-
-        # 3. Global mean
-        self.global_mean = float(df[config.TARGET_COL].mean())
+        """Store the training data; seasonal-naive has no parameters to learn."""
+        self.train_df = train_df.copy()
         return self
 
-    def predict(self, df: pd.DataFrame) -> np.ndarray:
-        """
-        Generate baseline predictions for the input DataFrame.
-        """
-        predict_df = df.copy()
-        if "week_of_year" not in predict_df.columns and "date" in predict_df.columns:
-            dates = pd.to_datetime(predict_df["date"])
-            predict_df["week_of_year"] = dates.dt.isocalendar().week.astype(int)
-
-        preds = []
-        for idx, row in predict_df.iterrows():
-            store_id = row.get("store_id")
-            dept_id = row.get("dept_id")
-            week = row.get("week_of_year")
-
-            # Try Seasonal lookup
-            key_seasonal = (store_id, dept_id, week)
-            if key_seasonal in self.seasonal_lookup and not np.isnan(self.seasonal_lookup[key_seasonal]):
-                val = self.seasonal_lookup[key_seasonal]
-            # Try Lag 1 feature if available
-            elif "weekly_sales_lag_1" in row and not pd.isna(row["weekly_sales_lag_1"]):
-                val = row["weekly_sales_lag_1"]
-            # Try Store-Dept lookup
-            elif (store_id, dept_id) in self.store_dept_lookup:
-                val = self.store_dept_lookup[(store_id, dept_id)]
-            # Global mean fallback
-            else:
-                val = self.global_mean
-
-            preds.append(val)
-
-        return np.array(preds, dtype=np.float64)
+    def predict(self, holdout_df: pd.DataFrame) -> np.ndarray:
+        """Return seasonal-naive point predictions as a numpy array, aligned to holdout_df's row order."""
+        if self.train_df is None:
+            raise RuntimeError("SeasonalNaiveBaseline.fit(train_df) must be called before predict().")
+        pred_df = predict_seasonal_naive(self.train_df, holdout_df, seasonal_weeks=self.seasonal_weeks)
+        return pred_df["prediction"].values
 
 
 def run_baseline_pipeline(
     train_path: Path = config.PROCESSED_TRAIN_CSV,
     holdout_path: Path = config.PROCESSED_HOLDOUT_CSV,
-    output_path: Optional[Path] = None,
-) -> Dict[str, float]:
+) -> Tuple[pd.DataFrame, Dict[str, float]]:
     """
-    Loads train and holdout CSVs, fits baseline model, evaluates on holdout, and saves predictions.
+    Load data, execute Seasonal-Naive baseline predictions, and return evaluation metrics.
     """
     if not train_path.exists() or not holdout_path.exists():
-        print(f"[WARNING] Processed data files not found at:\n  - {train_path}\n  - {holdout_path}")
-        print("Please run Module 1 (`python -m src.features.build_dataset`) first when raw data is available.")
-        return {}
+        print(f"[WARNING] Processed data files not found at {train_path} / {holdout_path}.")
+        print("Run 'python -m src.features.build_dataset' first to generate processed data.")
+        return pd.DataFrame(), {}
 
-    print(f"Loading training data from {train_path}...")
     train_df = pd.read_csv(train_path)
-    print(f"Loading holdout data from {holdout_path}...")
     holdout_df = pd.read_csv(holdout_path)
 
-    baseline = SeasonalNaiveBaseline()
-    baseline.fit(train_df)
+    pred_df = predict_seasonal_naive(train_df, holdout_df)
+    metrics = evaluate_predictions(pred_df, pred_col="prediction")
 
-    holdout_df["baseline_pred"] = baseline.predict(holdout_df)
-
-    metrics = evaluate_predictions(
-        holdout_df,
-        pred_col="baseline_pred",
-        target_col=config.TARGET_COL,
-        holiday_col="is_holiday",
-    )
-
-    print_evaluation_report("Seasonal Naïve Baseline", metrics)
-
-    if output_path is None:
-        output_path = config.PROCESSED_DIR / "baseline_predictions.csv"
-
-    config.PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-    holdout_df.to_csv(output_path, index=False)
-    print(f"Saved baseline predictions to {output_path}")
-
-    return metrics
+    print_evaluation_report("Seasonal-Naive Baseline", metrics)
+    return pred_df, metrics
 
 
 if __name__ == "__main__":
+    print("Executing Baseline Model (Seasonal-Naive)...")
     if config.PROCESSED_TRAIN_CSV.exists() and config.PROCESSED_HOLDOUT_CSV.exists():
         run_baseline_pipeline()
     else:
-        print("[INFO] Running baseline.py test mode on synthetic data...")
-        # Create synthetic dataset to demonstrate functionality
-        np.random.seed(config.RANDOM_SEED)
-        dates_train = pd.date_range(start="2010-02-05", periods=50, freq="W-FRI")
-        dates_holdout = pd.date_range(start="2011-02-04", periods=10, freq="W-FRI")
+        print("[DEMO MODE] Generating synthetic test data for baseline demonstration...")
+        dates_train = pd.date_range("2010-02-05", "2012-08-17", freq="W-FRI")
+        dates_holdout = pd.date_range("2012-08-24", "2012-10-26", freq="W-FRI")
 
-        train_rows, holdout_rows = [], []
-        for s in range(1, 3):
-            for d in range(1, 4):
+        train_list, holdout_list = [], []
+        for s in [1, 2]:
+            for d in [1, 2]:
                 for dt in dates_train:
-                    train_rows.append({
-                        "store_id": s, "dept_id": d, "date": dt,
-                        "weekly_sales": 10000 + s * 1000 + d * 500 + np.random.normal(0, 500),
-                        "is_holiday": False
-                    })
+                    sales = 10000 + 2000 * np.sin(dt.dayofyear / 365.0 * 2 * np.pi) + np.random.normal(0, 500)
+                    train_list.append({"store_id": s, "dept_id": d, "date": dt.strftime("%Y-%m-%d"), "weekly_sales": sales, "week_of_year": dt.isocalendar().week})
                 for dt in dates_holdout:
-                    holdout_rows.append({
-                        "store_id": s, "dept_id": d, "date": dt,
-                        "weekly_sales": 10000 + s * 1000 + d * 500 + np.random.normal(0, 500),
-                        "is_holiday": False
-                    })
+                    sales = 10000 + 2000 * np.sin(dt.dayofyear / 365.0 * 2 * np.pi) + np.random.normal(0, 500)
+                    holdout_list.append({"store_id": s, "dept_id": d, "date": dt.strftime("%Y-%m-%d"), "weekly_sales": sales, "week_of_year": dt.isocalendar().week, "is_holiday": False})
 
-        synth_train = pd.DataFrame(train_rows)
-        synth_holdout = pd.DataFrame(holdout_rows)
+        demo_train = pd.DataFrame(train_list)
+        demo_holdout = pd.DataFrame(holdout_list)
 
-        model = SeasonalNaiveBaseline()
-        model.fit(synth_train)
-        synth_holdout["baseline_pred"] = model.predict(synth_holdout)
-
-        metrics = evaluate_predictions(synth_holdout, pred_col="baseline_pred")
-        print_evaluation_report("Baseline Synthetic Test", metrics)
-
+        demo_pred = predict_seasonal_naive(demo_train, demo_holdout)
+        metrics = evaluate_predictions(demo_pred, pred_col="prediction")
+        print_evaluation_report("Seasonal-Naive Baseline (Synthetic Demo)", metrics)
