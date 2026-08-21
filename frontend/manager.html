@@ -29,6 +29,12 @@
       <button class="btn btn-secondary btn-sm" onclick="logout()">Logout</button>
     </div>
   </header>
+    <!-- CSV Upload Section -->
+    <div class="form-group" style="margin-top: 1rem; display: flex; align-items: center; gap: 0.5rem;">
+      <label class="form-label" for="csvUploadInput" style="margin:0;">Upload Weekly Sales CSV</label>
+      <input type="file" id="csvUploadInput" class="form-control" accept=".csv" style="flex:1; max-width:300px;">
+      <button class="btn btn-primary btn-sm" onclick="uploadCsv()" id="uploadCsvBtn">Upload</button>
+    </div>
 
   <main class="container">
 
@@ -253,8 +259,10 @@
       } else {
         // Managers are strictly locked to their assigned store
         document.getElementById('forecastStoreInput').value = assignedStore;
-        document.getElementById('currentStoreDisplay').innerText = assignedStore;
-        document.getElementById('userRoleBadge').innerText = `Store ${assignedStore} Manager`;
+        const curStoreEl = document.getElementById('currentStoreDisplay');
+        if (curStoreEl) curStoreEl.innerText = assignedStore;
+        const roleBadgeEl = document.getElementById('userRoleBadge');
+        if (roleBadgeEl) roleBadgeEl.innerText = `Store ${assignedStore} Manager`;
       }
     }
 
@@ -271,7 +279,8 @@
       const endDate = document.getElementById('forecastEndDate').value;
       const model = document.getElementById('forecastModelSelect').value;
 
-      document.getElementById('currentStoreDisplay').innerText = storeId;
+      const curStoreEl2 = document.getElementById('currentStoreDisplay');
+        if (curStoreEl2) curStoreEl2.innerText = storeId;
       const btn = document.getElementById('fetchForecastBtn');
       btn.innerText = 'Calculating...';
       btn.disabled = true;
@@ -581,6 +590,44 @@
           }
         }
       });
+    }
+
+        // ---------- CSV Upload Handler ----------
+    async function uploadCsv() {
+      const fileInput = document.getElementById('csvUploadInput');
+      if (!fileInput.files.length) {
+        showToast('Please select a CSV file first.', 'warning');
+        return;
+      }
+      const file = fileInput.files[0];
+      const form = new FormData();
+      form.append('file', file);
+
+      const btn = document.getElementById('uploadCsvBtn');
+      btn.disabled = true;
+      btn.innerText = 'Uploading...';
+
+      try {
+        const res = await fetch(`${API_BASE}/upload/csv`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` },
+          body: form,
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.message || 'Upload failed');
+        }
+        showToast('CSV uploaded successfully. Refreshing data...', 'success');
+        await loadForecastData();
+        const storeId = document.getElementById('forecastStoreInput').value.trim();
+        await loadReorderAlerts(storeId);
+      } catch (e) {
+        showToast(e.message, 'error');
+      } finally {
+        btn.disabled = false;
+        btn.innerText = 'Upload';
+        fileInput.value = '';
+      }
     }
 
     // Auto-init on load
